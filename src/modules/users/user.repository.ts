@@ -31,3 +31,10 @@ export async function createSession(idUser: number, token: string, ip?: string, 
 export async function deleteSessionByToken(token: string) {
   await pool.query(`DELETE FROM ${SESSION_TABLE} WHERE "token" = $1`, [token]);
 }
+
+export async function insertNewUser(email: string, passwordHash: string) {
+  const q = `INSERT INTO ${USER_TABLE} ("email", "passwordHash", "idUserGroup")
+             VALUES ($1, $2, 1) RETURNING "idUser"`;
+  const { rows } = await pool.query(q, [email, passwordHash]);
+  return rows[0].idUser as number;
+}

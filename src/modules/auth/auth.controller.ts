@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import useragent from "useragent";
-import { changePasswordByEmail, forgotPassword, login, logout } from "./auth.service.js";
+import bcrypt from "bcrypt";
+import { changePasswordByEmail, forgotPassword, login, logout, registerNewUser } from "./auth.service.js";
 
 const COOKIE_NAME = "auth_token";
 
@@ -42,4 +43,39 @@ export async function logoutController(req: Request, res: Response) {
   await logout(token);
   res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" });
   res.json({ ok: true });
+}
+
+export async function registerController(req: Request, res: Response){
+  try{
+    const{email, password, confirmPassword} = req.body;
+    console.log(req.body);
+    if (!email || !password || !confirmPassword) {
+      return res.status(400).json({ message: "Todos los campos son obligatorios." });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "El email no es válido." });
+    }
+
+    // Validar contraseñas
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "Las contraseñas no coinciden." });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    const newUser = await registerNewUser(email,passwordHash);
+
+    return res.status(201).json({
+      message: "Usuario registrado con éxito.",
+      user: {
+        idUser: newUser.idUser,
+        email: newUser.email,
+        idUserGroup: 1
+      }
+    });
+  }catch (error) {
+    console.error("Error en registerController:", error);
+    return res.status(500).json({ message: "Error al registrar el usuario." });
+  }
 }

@@ -1,4 +1,4 @@
-import { createSession, deleteSessionByToken, findUserByEmail, updateLastLogin, updateUserPassword } from "../users/user.repository.js";
+import { createSession, deleteSessionByToken, findUserByEmail, updateLastLogin, updateUserPassword, insertNewUser } from "../users/user.repository.js";
 import { hashPassword, verifyPassword } from "../../utils/crypto.js";
 import { signAuthToken } from "../../utils/jwt.js";
 
@@ -40,4 +40,12 @@ export async function forgotPassword(email: string) {
 export async function logout(token?: string) {
   if (!token) return;
   await deleteSessionByToken(token);
+}
+
+export async function registerNewUser(email: string, passwordHash: string) {
+  const existingUser = await findUserByEmail(email);
+  if (existingUser) throw { status: 400, message: "El email ya está en uso" };
+
+  const idUser = await insertNewUser(email, passwordHash);
+  return { idUser, email };
 }
