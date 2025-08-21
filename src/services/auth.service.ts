@@ -1,7 +1,7 @@
-import { createSession, deleteSessionByToken, findUserByEmail, updateLastLogin, updateUserPassword, insertNewUser, findUserById } from "../users/user.repository.js";
-import { hashPassword, verifyPassword } from "../../utils/crypto.js";
-import { signAuthToken } from "../../utils/jwt.js";
-import { User } from "../users/user.model.js";
+import { createSession, deleteSessionByToken, findUserByEmail, updateLastLogin, updateUserPassword, insertNewUser, findUserById } from "../repositories/user.repository.js";
+import { hashPassword, verifyPassword } from "../utils/crypto.js";
+import { signAuthToken } from "../utils/jwt.js";
+import { User } from "../models/user.model.js";
 
 export async function login(email: string, password: string, ip?: string, browser?: string) {
   const user = await findUserByEmail(email);

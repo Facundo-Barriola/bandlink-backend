@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import useragent from "useragent";
 import bcrypt from "bcrypt";
-import { changePasswordByEmail, forgotPassword, login, logout, registerNewUser, getUserById } from "./auth.service.js";
-import {AuthRequest}  from "../../types/authRequest.js";
+import { changePasswordByEmail, forgotPassword, login, logout, registerNewUser, getUserById } from "../services/auth.service.js";
+import {AuthRequest}  from "../types/authRequest.js";
 const COOKIE_NAME = "auth_token";
 
 export async function loginController(req: Request, res: Response) {

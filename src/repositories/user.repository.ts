@@ -1,5 +1,5 @@
-import { pool } from "../../config/database.js";
-import { User } from "./user.model.js";
+import { pool } from "../config/database.js";
+import { User } from "../models/user.model.js";
 
 const USER_TABLE = `"Security"."User"`;
 const SESSION_TABLE = `"Security"."Session"`;
