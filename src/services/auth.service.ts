@@ -10,11 +10,9 @@ export async function login(email: string, password: string, ip?: string, browse
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw { status: 401, message: "Credenciales inválidas" };
 
-  const token = signAuthToken({ sub: user.idUser });
-  await createSession(user.idUser, token, ip, browser);
   await updateLastLogin(user.idUser);
 
-  return { token, user: { idUser: user.idUser, email: user.email, idUserGroup: user.idUserGroup } };
+  return user;
 }
 
 export async function changePasswordByEmail(email: string, oldPass: string, newPass: string) {
@@ -38,10 +36,6 @@ export async function forgotPassword(email: string) {
   //  implementar nodemailer para enviar realmente.
 }
 
-export async function logout(token?: string) {
-  if (!token) return;
-  await deleteSessionByToken(token);
-}
 
 export async function registerNewUser(email: string, passwordHash: string) {
   const existingUser = await findUserByEmail(email);

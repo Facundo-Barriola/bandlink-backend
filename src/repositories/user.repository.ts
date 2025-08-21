@@ -3,6 +3,96 @@ import { User } from "../models/user.model.js";
 
 const USER_TABLE = `"Security"."User"`;
 const SESSION_TABLE = `"Security"."Session"`;
+const AUTH_SESSION_TABLE = `"Security"."authSessions"`;
+
+export type InsertSession = {
+  jti: string;
+  userId: number | string;
+  tokenHash: string;
+  expiresAt: Date;
+  userAgent?: string;
+  ip?: string | string[];
+};
+
+export async function addRefreshToken(s: InsertSession): Promise<void> {
+  await pool.query(
+    `INSERT INTO ${AUTH_SESSION_TABLE}
+      ("jti","userId","tokenHash","expiresAt","userAgent","ip")
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [
+      s.jti,
+      Number(s.userId),
+      s.tokenHash,
+      s.expiresAt.toISOString(),
+      s.userAgent ?? null,
+      Array.isArray(s.ip) ? s.ip[0] : s.ip ?? null,
+    ]
+  );
+}
+
+export async function isRefreshTokenValid(jti: string, tokenHash: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1
+       FROM ${AUTH_SESSION_TABLE}
+      WHERE "jti" = $1
+        AND "tokenHash" = $2
+        AND "revokedAt" IS NULL
+        AND "expiresAt" > now()
+      LIMIT 1`,
+    [jti, tokenHash]
+  );
+  return rows.length > 0;
+}
+
+export async function revokeRefreshTokenByJti(jti: string): Promise<void> {
+  await pool.query(
+    `UPDATE ${AUTH_SESSION_TABLE} SET "revokedAt" = now() WHERE "jti" = $1`,
+    [jti]
+  );
+}
+
+export async function replaceRefreshToken(args: {
+  oldJti: string;
+  newJti: string;
+  oldTokenHash: string;
+  newTokenHash: string;
+  expiresAt: Date;
+}): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const prev = await client.query(
+      `SELECT "userId" FROM ${AUTH_SESSION_TABLE}
+        WHERE "jti" = $1 AND "tokenHash" = $2 AND "revokedAt" IS NULL
+        LIMIT 1`,
+      [args.oldJti, args.oldTokenHash]
+    );
+    if (prev.rows.length === 0) {
+      await client.query("ROLLBACK");
+      throw new Error("Prev refresh not found or already rotated");
+    }
+    const userId = prev.rows[0].userId as number;
+
+    await client.query(
+      `UPDATE ${AUTH_SESSION_TABLE} SET "revokedAt" = now() WHERE "jti" = $1`,
+      [args.oldJti]
+    );
+
+    await client.query(
+      `INSERT INTO ${AUTH_SESSION_TABLE} ("jti","userId","tokenHash","expiresAt")
+       VALUES ($1,$2,$3,$4)`,
+      [args.newJti, userId, args.newTokenHash, args.expiresAt.toISOString()]
+    );
+
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
 
 export async function findUserByEmail(email: string) {
   const q = `SELECT "idUser", "email", "passwordHash", "idUserGroup"
