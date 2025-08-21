@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import useragent from "useragent";
 import bcrypt from "bcrypt";
-import { changePasswordByEmail, forgotPassword, login, logout, registerNewUser } from "./auth.service.js";
-
+import { changePasswordByEmail, forgotPassword, login, logout, registerNewUser, getUserById } from "./auth.service.js";
+import {AuthRequest}  from "../../types/authRequest.js";
 const COOKIE_NAME = "auth_token";
 
 export async function loginController(req: Request, res: Response) {
@@ -17,10 +17,15 @@ export async function loginController(req: Request, res: Response) {
     .cookie(COOKIE_NAME, token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      secure: false,
+      maxAge: 1000 * 60 * 60 * 24,
+      path: "/",
     })
-    .json({ ok: true, user });
+    .json({ ok: true, user:{
+        idUser: user.idUser,
+        email: user.email,
+        idUserGroup: user.idUserGroup
+    } });
 }
 
 export async function changePasswordController(req: Request, res: Response) {
@@ -77,5 +82,19 @@ export async function registerController(req: Request, res: Response){
   }catch (error) {
     console.error("Error en registerController:", error);
     return res.status(500).json({ message: "Error al registrar el usuario." });
+  }
+}
+
+export async function getMeController(req: AuthRequest, res: Response) {
+  try {
+    const userId = req.userId; // viene del middleware
+    console.log("User ID from request:", userId);
+    if (!userId) return res.status(401).json({ error: "No auth token" });
+    const user = await getUserById(userId);
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ error: "Error al obtener usuario" });
   }
 }

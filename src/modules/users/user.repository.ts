@@ -1,4 +1,5 @@
 import { pool } from "../../config/database.js";
+import { User } from "./user.model.js";
 
 const USER_TABLE = `"Security"."User"`;
 const SESSION_TABLE = `"Security"."Session"`;
@@ -37,4 +38,18 @@ export async function insertNewUser(email: string, passwordHash: string) {
              VALUES ($1, $2, 1) RETURNING "idUser"`;
   const { rows } = await pool.query(q, [email, passwordHash]);
   return rows[0].idUser as number;
+}
+
+export async function findUserById(idUser: number): Promise<User | null> {
+  const query = `SELECT "idUser", "email" FROM ${USER_TABLE} WHERE "idUser" = $1`;
+  const values = [idUser];
+  try {
+    const result = await pool.query(query, values);
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return { idUser: row.idUser, email: row.email };
+  } catch (err) {
+    console.error("Error en findUserById:", err);
+    throw err;
+  }
 }

@@ -1,6 +1,7 @@
-import { createSession, deleteSessionByToken, findUserByEmail, updateLastLogin, updateUserPassword, insertNewUser } from "../users/user.repository.js";
+import { createSession, deleteSessionByToken, findUserByEmail, updateLastLogin, updateUserPassword, insertNewUser, findUserById } from "../users/user.repository.js";
 import { hashPassword, verifyPassword } from "../../utils/crypto.js";
 import { signAuthToken } from "../../utils/jwt.js";
+import { User } from "../users/user.model.js";
 
 export async function login(email: string, password: string, ip?: string, browser?: string) {
   const user = await findUserByEmail(email);
@@ -48,4 +49,10 @@ export async function registerNewUser(email: string, passwordHash: string) {
 
   const idUser = await insertNewUser(email, passwordHash);
   return { idUser, email };
+}
+
+export async function getUserById(id: number): Promise<User | null> {
+
+  const user = await findUserById(id);
+  return user;
 }

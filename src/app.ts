@@ -9,7 +9,10 @@ const app = express();
 
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({ origin: ENV.CLIENT_ORIGIN, credentials: true }));
+app.use(cors({
+  origin: ENV.CLIENT_ORIGIN,
+  credentials: true,               
+}));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
 app.use("/auth", authRoutes);

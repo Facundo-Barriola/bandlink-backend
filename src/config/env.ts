@@ -13,13 +13,9 @@ function getJwtExpires(): string | number {
   if (!value) {
     return "1h"; // valor por defecto
   }
-
-  // Si es numérico, devolver número
   if (/^\d+$/.test(value)) {
     return Number(value);
   }
-
-  // Si es string tipo "7d", "1h", etc., devolverlo tal cual
   return value;
 }
 
