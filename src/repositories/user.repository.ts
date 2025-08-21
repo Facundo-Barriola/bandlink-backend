@@ -131,13 +131,13 @@ export async function insertNewUser(email: string, passwordHash: string) {
 }
 
 export async function findUserById(idUser: number): Promise<User | null> {
-  const query = `SELECT "idUser", "email" FROM ${USER_TABLE} WHERE "idUser" = $1`;
+  const query = `SELECT "idUser", "email", "passwordHash", "idUserGroup" FROM ${USER_TABLE} WHERE "idUser" = $1`;
   const values = [idUser];
   try {
     const result = await pool.query(query, values);
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
-    return { idUser: row.idUser, email: row.email };
+    return { idUser: row.idUser, email: row.email, role: row.idUserGroup, passwordHash: row.passwordHash };
   } catch (err) {
     console.error("Error en findUserById:", err);
     throw err;

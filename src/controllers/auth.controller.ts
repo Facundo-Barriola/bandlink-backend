@@ -69,8 +69,9 @@ export async function loginController(req: Request, res: Response) {
 
 
 export async function changePasswordController(req: Request, res: Response) {
-  const { email, oldPassword, newPassword } = req.body;
-  await changePasswordByEmail(email, oldPassword, newPassword);
+  const { id } = req.params;
+  const { currentPassword, newPassword } = req.body;
+  await changePasswordByEmail(Number(id), currentPassword, newPassword);
   res.json({ ok: true, message: "Contraseña actualizada" });
 }
 

@@ -15,9 +15,14 @@ export async function login(email: string, password: string, ip?: string, browse
   return user;
 }
 
-export async function changePasswordByEmail(email: string, oldPass: string, newPass: string) {
-  const user = await findUserByEmail(email);
+export async function changePasswordByEmail(idUser: number, oldPass: string, newPass: string) {
+
+  const user = await getUserById(Number(idUser));
   if (!user) throw { status: 404, message: "Usuario no encontrado" };
+  
+  if (!user.passwordHash) {
+    throw { status: 500, message: "El usuario no tiene password configurado" };
+  }
 
   const ok = await verifyPassword(oldPass, user.passwordHash);
   if (!ok) throw { status: 400, message: "Contraseña actual incorrecta" };
