@@ -1,9 +1,11 @@
 import { pool } from "../config/database.js";
+import { PoolClient } from "pg";
 import { User } from "../models/user.model.js";
 
 const USER_TABLE = `"Security"."User"`;
 const SESSION_TABLE = `"Security"."Session"`;
 const AUTH_SESSION_TABLE = `"Security"."authSessions"`;
+const USER_PROFILE_TABLE = `"Directory"."UserProfile"`; 
 
 export type InsertSession = {
   jti: string;
@@ -13,6 +15,57 @@ export type InsertSession = {
   userAgent?: string;
   ip?: string | string[];
 };
+
+async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const out = await fn(client);
+    await client.query("COMMIT");
+    return out;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteUserAccountEverywhere(idUser: number): Promise<void> {
+  await withTransaction(async (client) => {
+    // (Opcional) Verificar que exista
+    const exists = await client.query(
+      `SELECT 1 FROM ${USER_TABLE} WHERE "idUser" = $1`,
+      [idUser]
+    );
+    if (exists.rowCount === 0) {
+      // no existe el user; no hacemos nada
+      return;
+    }
+
+    // 1) Borrar refresh sessions (tokens) y sesiones activas
+    await client.query(
+      `DELETE FROM ${AUTH_SESSION_TABLE} WHERE "userId" = $1`,
+      [idUser]
+    );
+    await client.query(
+      `DELETE FROM ${SESSION_TABLE} WHERE "idUser" = $1`,
+      [idUser]
+    );
+
+    // 2) Borrar UserProfile en Directory (esto CASCADEA a Musician/Studio y puentes)
+    await client.query(
+      `DELETE FROM ${USER_PROFILE_TABLE} WHERE "idUser" = $1`,
+      [idUser]
+    );
+
+    // 3) Borrar el usuario
+    await client.query(
+      `DELETE FROM ${USER_TABLE} WHERE "idUser" = $1`,
+      [idUser]
+    );
+  });
+}
 
 export async function addRefreshToken(s: InsertSession): Promise<void> {
   await pool.query(

@@ -16,7 +16,7 @@ export interface Instrument {
     instrumentName:string;
 }
 
-export interface Muscian{
+export interface Musician{
     idMusician:number;
     idUserProfile:number;
     experienceLevel:number;
