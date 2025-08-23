@@ -3,6 +3,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { ENV } from "./config/env.js";
 import authRoutes from "./routes/auth.routes.js";
+import addressRoutes from "./routes/address.routes.js";
+import directoryRoutes from "./routes/directory.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 const app = express();
@@ -16,6 +18,8 @@ app.use(cors({
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
 app.use("/auth", authRoutes);
+app.use("/address", addressRoutes);
+app.use("/directory", directoryRoutes);
 
 app.use(errorHandler);
 
