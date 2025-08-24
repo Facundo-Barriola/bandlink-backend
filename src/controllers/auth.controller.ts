@@ -97,7 +97,7 @@ export async function logoutController(req: Request, res: Response) {
 
 export async function registerController(req: Request, res: Response) {
   try {
-    const { email, password, confirmPassword } = req.body;
+    const { email, password, confirmPassword, idUserGroup } = req.body;
     console.log(req.body);
     if (!email || !password || !confirmPassword) {
       return res.status(400).json({ message: "Todos los campos son obligatorios." });
@@ -114,14 +114,14 @@ export async function registerController(req: Request, res: Response) {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const newUser = await registerNewUser(email, passwordHash);
+    const newUser = await registerNewUser(email, passwordHash, idUserGroup);
 
     return res.status(201).json({
       message: "Usuario registrado con éxito.",
       user: {
         idUser: newUser.idUser,
         email: newUser.email,
-        idUserGroup: 1
+        idUserGroup: newUser.idUserGroup
       }
     });
   } catch (error) {

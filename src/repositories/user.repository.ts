@@ -1,4 +1,4 @@
-import { pool } from "../config/database.js";
+import { pool, withTransaction } from "../config/database.js";
 import { PoolClient } from "pg";
 import { User } from "../models/user.model.js";
 
@@ -16,34 +16,16 @@ export type InsertSession = {
   ip?: string | string[];
 };
 
-async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const out = await fn(client);
-    await client.query("COMMIT");
-    return out;
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
-}
 
 export async function deleteUserAccountEverywhere(idUser: number): Promise<void> {
   await withTransaction(async (client) => {
-    // (Opcional) Verificar que exista
     const exists = await client.query(
       `SELECT 1 FROM ${USER_TABLE} WHERE "idUser" = $1`,
       [idUser]
     );
     if (exists.rowCount === 0) {
-      // no existe el user; no hacemos nada
       return;
     }
-
-    // 1) Borrar refresh sessions (tokens) y sesiones activas
     await client.query(
       `DELETE FROM ${AUTH_SESSION_TABLE} WHERE "userId" = $1`,
       [idUser]
@@ -52,14 +34,10 @@ export async function deleteUserAccountEverywhere(idUser: number): Promise<void>
       `DELETE FROM ${SESSION_TABLE} WHERE "idUser" = $1`,
       [idUser]
     );
-
-    // 2) Borrar UserProfile en Directory (esto CASCADEA a Musician/Studio y puentes)
     await client.query(
       `DELETE FROM ${USER_PROFILE_TABLE} WHERE "idUser" = $1`,
       [idUser]
     );
-
-    // 3) Borrar el usuario
     await client.query(
       `DELETE FROM ${USER_TABLE} WHERE "idUser" = $1`,
       [idUser]
@@ -176,10 +154,10 @@ export async function deleteSessionByToken(token: string) {
   await pool.query(`DELETE FROM ${SESSION_TABLE} WHERE "token" = $1`, [token]);
 }
 
-export async function insertNewUser(email: string, passwordHash: string) {
+export async function insertNewUser(email: string, passwordHash: string, idUserGroup: number) {
   const q = `INSERT INTO ${USER_TABLE} ("email", "passwordHash", "idUserGroup")
-             VALUES ($1, $2, 1) RETURNING "idUser"`;
-  const { rows } = await pool.query(q, [email, passwordHash]);
+             VALUES ($1, $2, $3) RETURNING "idUser"`;
+  const { rows } = await pool.query(q, [email, passwordHash, idUserGroup]);
   return rows[0].idUser as number;
 }
 
@@ -195,4 +173,16 @@ export async function findUserById(idUser: number): Promise<User | null> {
     console.error("Error en findUserById:", err);
     throw err;
   }
+}
+
+export async function insertNewUserWithGroupTx(
+  client: PoolClient,
+  email: string,
+  passwordHash: string,
+  idUserGroup: number
+): Promise<number> {
+  const q = `INSERT INTO ${USER_TABLE} ("email","passwordHash","idUserGroup")
+             VALUES ($1,$2,$3) RETURNING "idUser"`;
+  const { rows } = await client.query(q, [email, passwordHash, idUserGroup]);
+  return rows[0].idUser as number;
 }

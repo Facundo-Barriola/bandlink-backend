@@ -2,11 +2,11 @@ import {Instrument, Musician, Studio, UserProfile, Room, RoomEquipment, Amenity,
 import {CreateMusicianInput} from "../types/createMusicianInput.js";
 import {CreatedMusician} from "../types/createdMusician.js";
 import { MusicianRow } from "../types/musicianRow.js";
-import { pool } from "../config/database.js";
-import type { PoolClient } from "pg";
+import { pool, withTransaction } from "../config/database.js";
+import { PoolClient } from "pg";
 
 const INSTRUMENT_TABLE = `"Directory"."Instrument"`;
-const MUSICIAN_TABLE = `"Directory.Musician"`;
+const MUSICIAN_TABLE = `"Directory"."Musician"`;
 const USER_PROFILE_TABLE = `"Directory"."UserProfile"`;
 const STUDIO_TABLE = `"Directory"."Studio"`;
 const AMENITY_TABLE = `"Directory"."Amenity"`;
@@ -17,22 +17,79 @@ const STUDIO_AMENITY_TABLE = `"Directory"."StudioAmenity"`;
 const MUSICIAN_INSTRUMENT_TABLE = `"Directory"."MusicianInstrument"`;
 const MUSICIAN_GENRE_TABLE = `"Directory"."MusicianGenre"`;
 
-export async function withTransaction<T>(
-  fn: (client: PoolClient) => Promise<T>
-): Promise<T> {
-  const client = await pool.connect(); // PoolClient
-  try {
-    await client.query("BEGIN");
-    const out = await fn(client);
-    await client.query("COMMIT");
-    return out;
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
+
+//Con transacciones
+export async function createUserProfileTx(client: PoolClient, args: {
+  idUser: number;
+  displayName: string;
+  bio?: string | null;
+  idAddress?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}): Promise<number> {
+  const q = `
+    INSERT INTO ${USER_PROFILE_TABLE}
+      ("idUser","displayName","bio","idAddress","latitude","longitude")
+    VALUES ($1,$2,$3,$4,$5,$6)
+    RETURNING "idUserProfile"
+  `;
+  const { rows } = await client.query(q, [
+    args.idUser,
+    args.displayName,
+    args.bio ?? null,
+    args.idAddress ?? null,
+    args.latitude ?? null,
+    args.longitude ?? null,
+  ]);
+  return rows[0].idUserProfile as number;
 }
+
+export async function createMusicianTx(client: PoolClient, args: {
+  idUserProfile: number;
+  birthDate?: string | null;
+  experienceYears?: number | null;
+  skillLevel?: "beginner" | "intermediate" | "advanced" | "professional";
+  isAvailable?: boolean;
+  travelRadiusKm?: number | null;
+  visibility?: "city" | "province" | "country" | "global";
+  instruments: Array<{ idInstrument: number; isPrimary?: boolean }>;
+}): Promise<number> {
+  if (!args.instruments?.length) throw new Error("Debe especificar al menos un instrumento");
+
+  const skill = args.skillLevel ?? "intermediate";
+  const avail = args.isAvailable ?? true;
+  const travel = args.travelRadiusKm ?? 10;
+  const visibility = args.visibility ?? "city";
+
+  const q = `
+    INSERT INTO ${MUSICIAN_TABLE}
+      ("idUserProfile","experienceYears","skillLevel","isAvailable","travelRadiusKm","visibility","birthDate")
+    VALUES ($1,$2,$3,$4,$5,$6,$7)
+    RETURNING "idMusician"
+  `;
+  const { rows } = await client.query(q, [
+    args.idUserProfile,
+    args.experienceYears ?? null,
+    skill,
+    avail,
+    travel,
+    visibility,
+    args.birthDate ?? null,
+  ]);
+  const idMusician = rows[0].idMusician as number;
+
+  // instrumentos
+  const tuples = args.instruments.map((_, i) => `($1,$${i * 2 + 2},$${i * 2 + 3})`).join(", ");
+  const params: any[] = [idMusician];
+  args.instruments.forEach(it => params.push(it.idInstrument, !!it.isPrimary));
+  await client.query(
+    `INSERT INTO ${MUSICIAN_INSTRUMENT_TABLE} ("idMusician","idInstrument","isPrimary") VALUES ${tuples}`,
+    params
+  );
+
+  return idMusician;
+}
+//sin tx
 
 export async function getInstruments(): Promise<Instrument[]>{
     const { rows } =  await pool.query(`SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} ORDER BY "instrumentName"`);
@@ -75,7 +132,7 @@ export async function createMusician(input: CreateMusicianInput): Promise<Create
   const visibility = m.visibility ?? "city";
 
   return withTransaction(async (client) => {
-    // 1) Insert en UserProfile (idUser es UNIQUE por DDL, uno a uno)
+
     const insertProfile = `
       INSERT INTO ${USER_PROFILE_TABLE}
         ("idUser", "displayName", "bio", "idAddress", "latitude", "longitude")
@@ -93,7 +150,6 @@ export async function createMusician(input: CreateMusicianInput): Promise<Create
     const upRes = await client.query(insertProfile, profileVals);
     const idUserProfile: number = upRes.rows[0].idUserProfile;
 
-    // 2) Insert en Musician (1 a 1 con UserProfile por UNIQUE)
     const insertMusician = `
       INSERT INTO ${MUSICIAN_TABLE}
         ("idUserProfile", "experienceYears", "skillLevel", "isAvailable", "travelRadiusKm", "visibility", "birthDate")

@@ -42,12 +42,12 @@ export async function forgotPassword(email: string) {
 }
 
 
-export async function registerNewUser(email: string, passwordHash: string) {
+export async function registerNewUser(email: string, passwordHash: string, idUserGroup: number) {
   const existingUser = await findUserByEmail(email);
   if (existingUser) throw { status: 400, message: "El email ya está en uso" };
 
-  const idUser = await insertNewUser(email, passwordHash);
-  return { idUser, email };
+  const idUser = await insertNewUser(email, passwordHash, idUserGroup);
+  return { idUser, email, idUserGroup };
 }
 
 export async function getUserById(id: number): Promise<User | null> {
