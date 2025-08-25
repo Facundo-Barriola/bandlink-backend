@@ -1,8 +1,9 @@
 import type { PoolClient } from "pg";
 import { withTransaction } from "../config/database.js";
 import { insertNewUserWithGroupTx } from "../repositories/user.repository.js";
-import { createUserProfileTx, createMusicianTx } from "../repositories/directory.repository.js";
+import { createUserProfileTx, createMusicianTx, createStudioTx, addStudioAmenitiesTx, addStudioRoomsTx} from "../repositories/directory.repository.js";
 import { hashPassword } from "../utils/crypto.js";
+import { CreateStudioInput } from "../types/createStudioInput.js";
 
 type Role = "musico" | "sala" | "estandar";
 function groupIdFor(role: Role) { return role === "musico" ? 2 : role === "sala" ? 3 : 4; }
@@ -27,7 +28,7 @@ export type RegisterFullInput = {
         visibility?: "city" | "province" | "country" | "global";
         instruments: Array<{ idInstrument: number; isPrimary?: boolean }>;
     };
-    // studio?: {...} // luego
+    studio?: CreateStudioInput | null // luego
 };
 export class AccountService {
     static async registerFull(input: RegisterFullInput) {
@@ -67,7 +68,20 @@ export class AccountService {
                 return { idUser, idUserProfile, idMusician };
             }
 
-            // 4) Para "sala": después insertás en "Directory"."Studio" con el mismo client.
+            if (input.role === "sala") {
+                if (!input.studio) throw new Error("Faltan datos de la sala/estudio.");
+                console.log("Estoy dentro del service account");
+                const idStudio = await createStudioTx(client, { idUserProfile, studio: input.studio });
+
+                await addStudioAmenitiesTx(client, { idStudio, amenityIds: input.studio.amenities ?? [] });
+                console.log("ssss");
+                const createdRooms = await addStudioRoomsTx(client, {
+                    idStudio,
+                    rooms: input.studio.rooms ?? []
+                });
+                console.log("CreatedRooms:",createdRooms);
+                return { idUser, idUserProfile, idStudio, rooms: createdRooms };
+            }
             return { idUser, idUserProfile };
         });
     }

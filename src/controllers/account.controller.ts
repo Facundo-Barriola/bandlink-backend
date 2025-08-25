@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 
 export async function registerFullController(req: Request, res: Response) {
     try {
+        console.log(req.body);
         const out = await AccountService.registerFull(req.body);
         res.status(201).json({ ok: true, data: out });
     } catch (e: any) {

@@ -1,6 +1,7 @@
 import {Instrument, Musician, Studio, UserProfile, Room, RoomEquipment, Amenity, Genre} from "../models/directory.model.js"
 import {CreateMusicianInput} from "../types/createMusicianInput.js";
 import {CreatedMusician} from "../types/createdMusician.js";
+import { CreateStudioInput } from "../types/createStudioInput.js";
 import { MusicianRow } from "../types/musicianRow.js";
 import { pool, withTransaction } from "../config/database.js";
 import { PoolClient } from "pg";
@@ -89,7 +90,118 @@ export async function createMusicianTx(client: PoolClient, args: {
 
   return idMusician;
 }
+
+export async function createStudioTx(
+  client: PoolClient,
+  args: { idUserProfile: number; studio: CreateStudioInput }
+): Promise<number> {
+  const s = args.studio ?? {};
+  const q = `
+    INSERT INTO ${STUDIO_TABLE}
+      ("idUserProfile","legalName","phone","website","isVerified","openingHours","cancellationPolicy")
+    VALUES ($1,$2,$3,$4,false,$5,$6)
+    RETURNING "idStudio"
+  `;
+  const { rows } = await client.query(q, [
+    args.idUserProfile,
+    s.legalName ?? null,
+    s.phone ?? null,
+    s.website ?? null,
+    s.openingHours ?? null,      // jsonb
+    s.cancellationPolicy ?? null
+  ]);
+  console.log(rows);
+  return rows[0].idStudio as number;
+}
+
+export async function addStudioAmenitiesTx(
+  client: PoolClient,
+  args: { idStudio: number; amenityIds?: number[] | null }
+): Promise<void> {
+  const ids = (args.amenityIds ?? []).filter(n => Number.isFinite(n));
+  if (!ids.length) return;
+  console.log("add studioAmenitiesTx");
+  const tuples = ids.map((_, i) => `($1,$${i + 2})`).join(", ");
+  await client.query(
+    `INSERT INTO ${STUDIO_AMENITY_TABLE} ("idStudio","idAmenity") VALUES ${tuples}
+     ON CONFLICT DO NOTHING`,
+    [args.idStudio, ...ids]
+  );
+}
+
+/** Inserta rooms + equipment (jsonb) y devuelve ids creados */
+export async function addStudioRoomsTx(
+  client: PoolClient,
+  args: {
+    idStudio: number;
+    rooms?: Array<{
+      roomName: string;
+      capacity?: number | null;
+      hourlyPrice: number;
+      notes?: string | null;
+      // ✅ Acepta tanto objeto como array
+      equipment?: Record<string, any> | any[] | null;
+    }> | null;
+  }
+): Promise<Array<{ idRoom: number; roomName: string }>> {
+  const out: Array<{ idRoom: number; roomName: string }> = [];
+  const rooms = args.rooms ?? [];
+  if (!rooms.length) return out;
+
+  for (const r of rooms) {
+    // ✅ Validaciones más estrictas
+    if (!r?.roomName?.trim() || typeof r.hourlyPrice !== "number" || !Number.isFinite(r.hourlyPrice)) {
+      throw new Error("Cada sala debe incluir roomName y hourlyPrice numérico.");
+    }
+
+    const insertRoom = `
+      INSERT INTO ${STUDIO_ROOM_TABLE}
+        ("idStudio","roomName","capacity","hourlyPrice","notes")
+      VALUES ($1,$2,$3,$4,$5)
+      RETURNING "idRoom"
+    `;
+    const { rows } = await client.query(insertRoom, [
+      args.idStudio,
+      r.roomName.trim(),
+      (r.capacity ?? null),
+      r.hourlyPrice,
+      (r.notes ?? null)
+    ]);
+    const idRoom = rows[0].idRoom as number;
+
+    // ✅ Soporte objeto o array + serialización a jsonb
+    const eq = r.equipment;
+    const hasEquipment =
+      Array.isArray(eq) ? eq.length > 0 :
+      eq && typeof eq === "object" ? Object.keys(eq).length > 0 :
+      false;
+
+    if (hasEquipment) {
+      await client.query(
+        // ✅ Casteo explícito a jsonb
+        `INSERT INTO ${STUDIO_ROOM_EQUIPMENT_TABLE} ("idRoom","equipment") VALUES ($1, $2::jsonb)`,
+        [idRoom, JSON.stringify(eq)] // ✅ Serializamos
+      );
+    }
+
+    out.push({ idRoom, roomName: r.roomName });
+  }
+
+  return out;
+}
+
 //sin tx
+
+export async function getAmenities(): Promise<Amenity[]>{
+  const query = `SELECT "idAmenity", "amenityName" FROM ${AMENITY_TABLE}`;
+  try{
+    const result = await pool.query(query);
+    return result.rows;
+  }catch(err){
+    console.log("Error en getAmenities()", err);
+    throw err;
+  }
+}
 
 export async function getInstruments(): Promise<Instrument[]>{
     const { rows } =  await pool.query(`SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} ORDER BY "instrumentName"`);
@@ -124,7 +236,6 @@ export async function createMusician(input: CreateMusicianInput): Promise<Create
     throw new Error("Debe especificar al menos un instrumento");
   }
 
-  // Normalizar defaults según tu DDL
   const m = input.musician ?? {};
   const skill = m.skillLevel ?? "intermediate";
   const avail = m.isAvailable ?? true;
@@ -168,8 +279,6 @@ export async function createMusician(input: CreateMusicianInput): Promise<Create
     const musRes = await client.query(insertMusician, musicianVals);
     const idMusician: number = musRes.rows[0].idMusician;
 
-    // 3) Insert en MusicianInstrument (puede marcarse uno como isPrimary = true)
-    //    Si vinieran varios "isPrimary: true", Postgres lo aceptará. Si querés validar 1 solo, hacelo antes.
     const valuesTuples = input.instruments
       .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
       .join(", ");
@@ -236,9 +345,7 @@ export async function getMusiciansByDisplayName(name: string): Promise<MusicianR
   return rows.map((r) => ({ ...r, instruments: r.instruments ?? [] }));
 }
 
-/** ==============================================
- *  Buscar músicos por instrumento y nivel (filtros)
- *  ============================================== */
+//sBuscar músicos por instrumento y nivel (filtros)
 export async function searchMusiciansByInstrumentAndLevel(params: {
   instrumentId?: number; // si no viene, no filtra por instrumento
   skillLevel?: "beginner" | "intermediate" | "advanced" | "professional"; // opcional
