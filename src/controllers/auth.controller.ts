@@ -22,6 +22,13 @@ const baseCookie = {
   path: ENV.COOKIE_PATH || "/",
 } as const;
 
+const ACCESS_COOKIE_NAME = "auth_token";
+const ACCESS_MAX_AGE_MS = 15 * 60 * 1000;
+const accessCookie = {
+  ...baseCookie,
+  maxAge: ACCESS_MAX_AGE_MS,
+} as const;
+
 export async function loginController(req: Request, res: Response) {
   const { email, password, rememberMe } = req.body as {
     email: string; password: string; rememberMe?: boolean;
@@ -51,13 +58,9 @@ export async function loginController(req: Request, res: Response) {
     ...(ip ? { ip } : {}),
   };
   await addRefreshToken(sessionData);
-
-  const cookieOptions = rememberMe
-    ? { ...baseCookie, maxAge: days * 24 * 60 * 60 * 1000 }
-    : baseCookie;
-  res
-    .cookie(COOKIE_NAME, refreshToken, cookieOptions)
-    .json({
+  res.cookie(COOKIE_NAME, refreshToken, baseCookie);
+  res.cookie(ACCESS_COOKIE_NAME, accessToken, accessCookie)
+  return res.json({
       ok: true, user: {
         idUser: user.idUser,
         email: user.email,
@@ -179,9 +182,8 @@ export async function refreshController(req: Request, res: Response) {
       expiresAt: new Date(now + remainingMs),
     });
 
-    // Reescribir cookie (mantenemos cookie de sesión aquí; si querés preservar maxAge exacto,
-    // guardalo junto al refresh al momento del login y úsalo acá).
     res.cookie(COOKIE_NAME, newRefresh, baseCookie);
+    res.cookie(ACCESS_COOKIE_NAME, accessToken, accessCookie);
 
     return res.json({ ok: true, accessToken });
   } catch (e) {

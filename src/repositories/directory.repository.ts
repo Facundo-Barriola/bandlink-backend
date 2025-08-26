@@ -192,6 +192,75 @@ export async function addStudioRoomsTx(
 
 //sin tx
 
+export async function getProfileByUser(idUser: number) {
+  const client = await pool.connect();
+  try {
+    const profile = await client.query(
+      `SELECT * FROM "Directory".fn_get_musician_profile($1)`,
+      [idUser]
+    );
+
+    const row = profile.rows[0];
+    if (!row) return null;
+
+    const idMusician = row.idmusician as number | null;
+
+    const instruments = idMusician
+      ? (await client.query(
+          `SELECT * FROM "Directory".fn_get_musician_instruments($1)`,
+          [idMusician]
+        )).rows
+      : [];
+
+    const genres = idMusician
+      ? (await client.query(
+          `SELECT * FROM "Directory".fn_get_musician_genres($1)`,
+          [idMusician]
+        )).rows
+      : [];
+
+    const bands = idMusician
+      ? (await client.query(
+          `SELECT * FROM "Directory".fn_get_bands_of_musician($1)`,
+          [idMusician]
+        )).rows
+      : [];
+
+    const events = idMusician
+      ? (await client.query(
+          `SELECT * FROM "Directory".fn_get_events_created_by_musician($1)`,
+          [idMusician]
+        )).rows
+      : [];
+    return {
+      user: {
+        idUser: row.iduser,
+        idUserProfile: row.iduserprofile,
+        displayName: row.displayname,
+        bio: row.bio,
+        avatarUrl: row.avatarurl,
+        latitude: row.latitude,
+        longitude: row.longitude,
+      },
+      musician: idMusician && {
+        idMusician,
+        experienceYears: row.experienceyears,
+        skillLevel: row.skilllevel,
+        isAvailable: row.isavailable,
+        travelRadiusKm: row.travelradiuskm,
+        visibility: row.visibility,
+        birthDate: row.birthdate,
+        instruments,
+        genres,
+      },
+      bands,
+      eventsCreated: events,
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function getAmenities(): Promise<Amenity[]>{
   const query = `SELECT "idAmenity", "amenityName" FROM ${AMENITY_TABLE}`;
   try{
