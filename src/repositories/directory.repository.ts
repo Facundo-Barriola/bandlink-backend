@@ -1,8 +1,9 @@
-import { Instrument, Musician, Studio, UserProfile, Room, RoomEquipment, Amenity, Genre } from "../models/directory.model.js"
+import { Instrument, Amenity, Genre } from "../models/directory.model.js"
 import { CreateMusicianInput } from "../types/createMusicianInput.js";
+import {LegacyReturn} from "../types/LegacyReturn.js";
 import { CreatedMusician } from "../types/createdMusician.js";
 import { CreateStudioInput } from "../types/createStudioInput.js";
-import { MusicianRow } from "../types/musicianRow.js";
+import { MusicianProfileRow } from "../types/musicianRow.js";
 import { pool, withTransaction } from "../config/database.js";
 import { PoolClient } from "pg";
 
@@ -16,8 +17,6 @@ const STUDIO_ROOM_TABLE = `"Directory"."StudioRoom"`;
 const STUDIO_ROOM_EQUIPMENT_TABLE = `"Directory"."StudioRoomEquipment"`;
 const STUDIO_AMENITY_TABLE = `"Directory"."StudioAmenity"`;
 const MUSICIAN_INSTRUMENT_TABLE = `"Directory"."MusicianInstrument"`;
-const MUSICIAN_GENRE_TABLE = `"Directory"."MusicianGenre"`;
-
 
 //Con transacciones
 export async function createUserProfileTx(client: PoolClient, args: {
@@ -129,7 +128,6 @@ export async function addStudioAmenitiesTx(
   );
 }
 
-/** Inserta rooms + equipment (jsonb) y devuelve ids creados */
 export async function addStudioRoomsTx(
   client: PoolClient,
   args: {
@@ -139,7 +137,6 @@ export async function addStudioRoomsTx(
       capacity?: number | null;
       hourlyPrice: number;
       notes?: string | null;
-      // ✅ Acepta tanto objeto como array
       equipment?: Record<string, any> | any[] | null;
     }> | null;
   }
@@ -149,7 +146,6 @@ export async function addStudioRoomsTx(
   if (!rooms.length) return out;
 
   for (const r of rooms) {
-    // ✅ Validaciones más estrictas
     if (!r?.roomName?.trim() || typeof r.hourlyPrice !== "number" || !Number.isFinite(r.hourlyPrice)) {
       throw new Error("Cada sala debe incluir roomName y hourlyPrice numérico.");
     }
@@ -169,7 +165,6 @@ export async function addStudioRoomsTx(
     ]);
     const idRoom = rows[0].idRoom as number;
 
-    // ✅ Soporte objeto o array + serialización a jsonb
     const eq = r.equipment;
     const hasEquipment =
       Array.isArray(eq) ? eq.length > 0 :
@@ -178,7 +173,6 @@ export async function addStudioRoomsTx(
 
     if (hasEquipment) {
       await client.query(
-        // ✅ Casteo explícito a jsonb
         `INSERT INTO ${STUDIO_ROOM_EQUIPMENT_TABLE} ("idRoom","equipment") VALUES ($1, $2::jsonb)`,
         [idRoom, JSON.stringify(eq)] // ✅ Serializamos
       );
@@ -191,16 +185,16 @@ export async function addStudioRoomsTx(
 }
 
 //sin tx
-export async function updateMusicianProfile(idUser: number, displayName: string|null, bio: string|null, isAvailable: boolean|null,
-  experienceYears: number|null, skillLevel: string|null, travelRadiusKm: number|null, visibility: string|null, birthDate: Date|string|null,
-  instruments: Array<{ idInstrument: number; isPrimary?: boolean }>|null|undefined, genres: Array<{idGenre: number}>|null|undefined
- ){
+export async function updateMusicianProfile(idUser: number, displayName: string | null, bio: string | null, isAvailable: boolean | null,
+  experienceYears: number | null, skillLevel: string | null, travelRadiusKm: number | null, visibility: string | null, birthDate: Date | string | null,
+  instruments: Array<{ idInstrument: number; isPrimary?: boolean }> | null | undefined, genres: Array<{ idGenre: number }> | null | undefined
+) {
   const client = await pool.connect();
-  try{
+  try {
     const birthDateParam =
       birthDate == null ? null
-      : typeof birthDate === "string" ? birthDate
-      : birthDate.toISOString().slice(0, 10); // yyyy-mm-dd
+        : typeof birthDate === "string" ? birthDate
+          : birthDate.toISOString().slice(0, 10); // yyyy-mm-dd
 
     const instrumentsJson =
       instruments === undefined ? null : JSON.stringify(instruments ?? []);
@@ -229,14 +223,14 @@ export async function updateMusicianProfile(idUser: number, displayName: string|
 
     const { rows } = await client.query(sql, values);
     return rows[0];
-  }catch (err) {
+  } catch (err) {
     console.log("Error en updateMusicianProfile()", err);
     throw err;
-  }finally {
+  } finally {
     client.release();
   }
 }
-export async function getMusicianProfileByUser(idUser: number) {
+export async function getMusicianProfileByUser(idUser: number): Promise<{legacy: LegacyReturn, musicianProfile: MusicianProfileRow|null}|null> {
   const client = await pool.connect();
   try {
     const profile = await client.query(
@@ -247,6 +241,7 @@ export async function getMusicianProfileByUser(idUser: number) {
     const row = profile.rows[0];
     if (!row) return null;
 
+    const idUserProfile = row.iduserprofile as number;
     const idMusician = row.idmusician as number | null;
 
     const instruments = idMusician
@@ -264,48 +259,120 @@ export async function getMusicianProfileByUser(idUser: number) {
 
     const genres = idMusician
       ? (await client.query(
-        `SELECT * FROM "Directory".fn_get_musician_genres($1)`,
+        `
+          SELECT
+            idgenre   AS "idGenre",
+            genrename AS "genreName"
+          FROM "Directory".fn_get_musician_genres($1)
+          `,
         [idMusician]
       )).rows
       : [];
 
     const bands = idMusician
       ? (await client.query(
-        `SELECT * FROM "Directory".fn_get_bands_of_musician($1)`,
+        `
+          SELECT
+            idband        AS "idBand",
+            name          AS "name",
+            description   AS "description",
+            createdat     AS "createdAt",
+            updatedat     AS "updatedAt",
+            roleinband    AS "roleInBand",
+            isadmin       AS "isAdmin",
+            joinedat      AS "joinedAt",
+            leftat        AS "leftAt",
+            genres        AS "genres"
+          FROM "Directory".fn_get_bands_of_musician($1)
+          `,
         [idMusician]
       )).rows
       : [];
 
     const events = idMusician
       ? (await client.query(
-        `SELECT * FROM "Directory".fn_get_events_created_by_musician($1)`,
-        [idMusician]
+                  `
+          SELECT
+            idevent     AS "idEvent",
+            name        AS "name",
+            description AS "description",
+            visibility  AS "visibility",
+            capacitymax AS "capacityMax",
+            idaddress   AS "idAddress",
+            latitude    AS "latitude",
+            longitude   AS "longitude",
+            startsat    AS "startsAt",
+            endsat      AS "endsAt",
+            createdat   AS "createdAt",
+            updatedat   AS "updatedAt"
+          FROM "Directory".fn_get_events_created_by_musician($1, $2, $3, $4, $5, $6)
+          `,
+        [idMusician, false, null, null, 100, 0]
       )).rows
       : [];
-    return {
+
+      const legacy: LegacyReturn = {
       user: {
         idUser: row.iduser,
-        idUserProfile: row.iduserprofile,
+        idUserProfile,
         displayName: row.displayname,
         bio: row.bio,
         avatarUrl: row.avatarurl,
-        latitude: row.latitude,
-        longitude: row.longitude,
+        latitude: row.latitude?.toString?.() ?? row.latitude ?? null,
+        longitude: row.longitude?.toString?.() ?? row.longitude ?? null,
       },
-      musician: idMusician && {
-        idMusician,
-        experienceYears: row.experienceyears,
-        skillLevel: row.skilllevel,
-        isAvailable: row.isavailable,
-        travelRadiusKm: row.travelradiuskm,
-        visibility: row.visibility,
-        birthDate: row.birthdate,
-        instruments,
-        genres,
-      },
+      musician: idMusician
+        ? {
+            idMusician,
+            experienceYears: row.experienceyears,
+            skillLevel: row.skilllevel,
+            isAvailable: row.isavailable,
+            travelRadiusKm: row.travelradiuskm,
+            visibility: row.visibility,
+            birthDate: row.birthdate,
+            instruments,
+            genres,
+          }
+        : null,
       bands,
       eventsCreated: events,
     };
+        const now = new Date();
+    const eventsUpcoming = events.filter(
+      (e) => e.startsAt && new Date(e.startsAt) >= now
+    );
+    const eventsUpcomingCount = eventsUpcoming.length;
+    const eventsPastCount = events.length - eventsUpcomingCount;
+        const musicianProfile: MusicianProfileRow | null = idMusician
+      ? {
+          idMusician,
+          idUserProfile,
+          displayName: row.displayname ?? null,
+          bio: row.bio ?? null,
+          avatarUrl: row.avatarurl ?? null,
+          experienceYears: row.experienceyears ?? null,
+          skillLevel: row.skilllevel ?? null,
+          isAvailable: row.isavailable ?? null,
+          travelRadiusKm: row.travelradiuskm ?? null,
+          visibility: row.visibility ?? null,
+          birthDate: row.birthdate ?? null,
+          latitude:
+            row.latitude?.toString?.() ??
+            (typeof row.latitude === "number" ? String(row.latitude) : row.latitude) ??
+            null,
+          longitude:
+            row.longitude?.toString?.() ??
+            (typeof row.longitude === "number" ? String(row.longitude) : row.longitude) ??
+            null,
+          instruments,
+          genres,
+          bands,
+          eventsUpcoming: eventsUpcoming,
+          eventsUpcomingCount,
+          eventsPastCount,
+        }
+      : null;
+    return {legacy, musicianProfile};
   } finally {
     client.release();
   }
@@ -327,14 +394,6 @@ export async function getInstruments(): Promise<Instrument[]> {
   return rows;
 }
 
-export async function getMusicianByDisplayName(name: string): Promise<Musician[]> {
-  const { rows } = await pool.query(`"SELECT * FROM 
-                                    ${USER_PROFILE_TABLE}
-                                    INNER JOIN ${MUSICIAN_TABLE}
-                                    ON ${USER_PROFILE_TABLE}."idUserProfile" = ${MUSICIAN_TABLE}."idUserProfile"
-                                    WHERE "displayName" LIKE $1  "`);
-  return rows;
-}
 
 export async function getInstrumentById(idInstrument: number): Promise<Instrument | null> {
   const query = `"SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} WHERE "IdInstrument" = $1"`
@@ -346,6 +405,19 @@ export async function getInstrumentById(idInstrument: number): Promise<Instrumen
     return row;
   } catch (err) {
     console.error("Error en getInstrumentById:", err);
+    throw err;
+  }
+}
+
+export async function getGenres(): Promise<Genre | null> {
+  const query = `Select "idGenre", "genreName" FROM ${GENRE_TABLE}`
+  try {
+    const result = await pool.query(query);
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return row;
+  } catch (err) {
+    console.error("Error en getGenres", err);
     throw err;
   }
 }
@@ -428,107 +500,46 @@ export async function createMusician(input: CreateMusicianInput): Promise<Create
   });
 }
 
-export async function getMusiciansByDisplayName(name: string): Promise<MusicianRow[]> {
-  const sql = `
-    SELECT
-      m."idMusician",
-      up."displayName",
-      up."bio",
-      m."experienceYears",
-      m."skillLevel",
-      m."isAvailable",
-      m."travelRadiusKm",
-      m."visibility",
-      m."birthDate",
-      COALESCE(
-        JSON_AGG(
-          DISTINCT JSONB_BUILD_OBJECT(
-            'idInstrument', i."idInstrument",
-            'instrumentName', i."instrumentName",
-            'isPrimary', mi."isPrimary"
-          )
-        ) FILTER (WHERE i."idInstrument" IS NOT NULL),
-        '[]'::json
-      ) AS instruments
-    FROM ${USER_PROFILE_TABLE} up
-    JOIN ${MUSICIAN_TABLE} m ON m."idUserProfile" = up."idUserProfile"
-    LEFT JOIN ${MUSICIAN_INSTRUMENT_TABLE} mi ON mi."idMusician" = m."idMusician"
-    LEFT JOIN ${INSTRUMENT_TABLE} i ON i."idInstrument" = mi."idInstrument"
-    WHERE up."displayName" ILIKE $1
-    GROUP BY
-      m."idMusician", up."displayName", up."bio",
-      m."experienceYears", m."skillLevel", m."isAvailable", m."travelRadiusKm", m."visibility", m."birthDate"
-    ORDER BY up."displayName"
-  `;
-  const { rows } = await pool.query(sql, [`%${name}%`]);
-  return rows.map((r) => ({ ...r, instruments: r.instruments ?? [] }));
+export async function searchMusiciansByName(
+  name: string,
+  genres?: string[]
+): Promise<MusicianProfileRow[]> {
+  const sql = `SELECT * FROM "Directory".fn_get_musicians_by_display_name($1, $2)`;
+  const { rows } = await pool.query(sql, [name, genres ?? null]);
+
+  return rows.map((r: any) => ({
+    ...r,
+    instruments: r.instruments ?? [],
+    genres: r.genres ?? [],
+    bands: r.bands ?? [],
+    eventsUpcoming: r.eventsupcoming ?? r.eventsUpcoming ?? [],
+  }));
 }
 
-//sBuscar músicos por instrumento y nivel (filtros)
 export async function searchMusiciansByInstrumentAndLevel(params: {
-  instrumentId?: number; // si no viene, no filtra por instrumento
-  skillLevel?: "beginner" | "intermediate" | "advanced" | "professional"; // opcional
-  onlyAvailable?: boolean; // default false
-  minExperienceYears?: number; // opcional
+  instrumentId?: number;
+  skillLevel?: "beginner" | "intermediate" | "advanced" | "professional";
+  onlyAvailable?: boolean;
+  minExperienceYears?: number;
   limit?: number;
   offset?: number;
-}): Promise<MusicianRow[]> {
-  const where: string[] = [];
-  const vals: any[] = [];
-  let idx = 1;
+}): Promise<MusicianProfileRow[]> {
+  const sql = `SELECT * FROM "Directory".fn_search_musicians_by_instr_or_level($1,$2,$3,$4,$5,$6)`;
+  const values = [
+    params.instrumentId ?? null,
+    params.skillLevel ?? null,
+    params.onlyAvailable ?? false,
+    params.minExperienceYears ?? null,
+    params.limit ?? 50,
+    params.offset ?? 0,
+  ];
+  const { rows } = await pool.query(sql, values);
 
-  if (typeof params.instrumentId === "number") {
-    where.push(`mi."idInstrument" = $${idx++}`);
-    vals.push(params.instrumentId);
-  }
-  if (params.skillLevel) {
-    where.push(`m."skillLevel" = $${idx++}`);
-    vals.push(params.skillLevel);
-  }
-  if (params.onlyAvailable) {
-    where.push(`m."isAvailable" = TRUE`);
-  }
-  if (typeof params.minExperienceYears === "number") {
-    where.push(`COALESCE(m."experienceYears", 0) >= $${idx++}`);
-    vals.push(params.minExperienceYears);
-  }
-
-  const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-  const sql = `
-    SELECT
-      m."idMusician",
-      up."displayName",
-      up."bio",
-      m."experienceYears",
-      m."skillLevel",
-      m."isAvailable",
-      m."travelRadiusKm",
-      m."visibility",
-      m."birthDate",
-      COALESCE(
-        JSON_AGG(
-          DISTINCT JSONB_BUILD_OBJECT(
-            'idInstrument', i."idInstrument",
-            'instrumentName', i."instrumentName",
-            'isPrimary', mi."isPrimary"
-          )
-        ) FILTER (WHERE i."idInstrument" IS NOT NULL),
-        '[]'::json
-      ) AS instruments
-    FROM ${MUSICIAN_TABLE} m
-    JOIN ${USER_PROFILE_TABLE} up ON up."idUserProfile" = m."idUserProfile"
-    LEFT JOIN ${MUSICIAN_INSTRUMENT_TABLE} mi ON mi."idMusician" = m."idMusician"
-    LEFT JOIN ${INSTRUMENT_TABLE} i ON i."idInstrument" = mi."idInstrument"
-    ${whereSQL}
-    GROUP BY
-      m."idMusician", up."displayName", up."bio",
-      m."experienceYears", m."skillLevel", m."isAvailable", m."travelRadiusKm", m."visibility", m."birthDate"
-    ORDER BY up."displayName"
-    ${typeof params.limit === "number" ? `LIMIT ${params.limit}` : ""}
-    ${typeof params.offset === "number" ? `OFFSET ${params.offset}` : ""}
-  `;
-
-  const { rows } = await pool.query(sql, vals);
-  return rows.map((r) => ({ ...r, instruments: r.instruments ?? [] }));
+  return rows.map((r: any) => ({
+    ...r,
+    instruments: r.instruments ?? [],
+    genres: r.genres ?? [],
+    bands: r.bands ?? [],
+    eventsUpcoming: r.eventsupcoming ?? r.eventsUpcoming ?? [],
+  }));
 }
