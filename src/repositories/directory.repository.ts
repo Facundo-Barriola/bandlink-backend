@@ -1,6 +1,6 @@
-import {Instrument, Musician, Studio, UserProfile, Room, RoomEquipment, Amenity, Genre} from "../models/directory.model.js"
-import {CreateMusicianInput} from "../types/createMusicianInput.js";
-import {CreatedMusician} from "../types/createdMusician.js";
+import { Instrument, Musician, Studio, UserProfile, Room, RoomEquipment, Amenity, Genre } from "../models/directory.model.js"
+import { CreateMusicianInput } from "../types/createMusicianInput.js";
+import { CreatedMusician } from "../types/createdMusician.js";
 import { CreateStudioInput } from "../types/createStudioInput.js";
 import { MusicianRow } from "../types/musicianRow.js";
 import { pool, withTransaction } from "../config/database.js";
@@ -173,8 +173,8 @@ export async function addStudioRoomsTx(
     const eq = r.equipment;
     const hasEquipment =
       Array.isArray(eq) ? eq.length > 0 :
-      eq && typeof eq === "object" ? Object.keys(eq).length > 0 :
-      false;
+        eq && typeof eq === "object" ? Object.keys(eq).length > 0 :
+          false;
 
     if (hasEquipment) {
       await client.query(
@@ -191,8 +191,52 @@ export async function addStudioRoomsTx(
 }
 
 //sin tx
+export async function updateMusicianProfile(idUser: number, displayName: string|null, bio: string|null, isAvailable: boolean|null,
+  experienceYears: number|null, skillLevel: string|null, travelRadiusKm: number|null, visibility: string|null, birthDate: Date|string|null,
+  instruments: Array<{ idInstrument: number; isPrimary?: boolean }>|null|undefined, genres: Array<{idGenre: number}>|null|undefined
+ ){
+  const client = await pool.connect();
+  try{
+    const birthDateParam =
+      birthDate == null ? null
+      : typeof birthDate === "string" ? birthDate
+      : birthDate.toISOString().slice(0, 10); // yyyy-mm-dd
 
-export async function getProfileByUser(idUser: number) {
+    const instrumentsJson =
+      instruments === undefined ? null : JSON.stringify(instruments ?? []);
+    const genresJson =
+      genres === undefined ? null : JSON.stringify(genres ?? []);
+
+    const sql = `
+      SELECT ok, "idMusician", updated_at
+      FROM "Directory".fn_update_musician_profile(
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10::jsonb, $11::jsonb
+      )`;
+    const values = [
+      idUser,
+      displayName,
+      bio,
+      isAvailable,
+      experienceYears,
+      skillLevel,
+      travelRadiusKm,
+      visibility,
+      birthDateParam,
+      instrumentsJson,
+      genresJson,
+    ];
+
+    const { rows } = await client.query(sql, values);
+    return rows[0];
+  }catch (err) {
+    console.log("Error en updateMusicianProfile()", err);
+    throw err;
+  }finally {
+    client.release();
+  }
+}
+export async function getMusicianProfileByUser(idUser: number) {
   const client = await pool.connect();
   try {
     const profile = await client.query(
@@ -207,30 +251,36 @@ export async function getProfileByUser(idUser: number) {
 
     const instruments = idMusician
       ? (await client.query(
-          `SELECT * FROM "Directory".fn_get_musician_instruments($1)`,
-          [idMusician]
-        )).rows
+        `
+       SELECT
+        idinstrument   AS "idInstrument",
+        instrumentname AS "instrumentName",
+        isprimary      AS "isPrimary"
+      FROM "Directory".fn_get_musician_instruments($1)
+      `,
+        [idMusician]
+      )).rows
       : [];
 
     const genres = idMusician
       ? (await client.query(
-          `SELECT * FROM "Directory".fn_get_musician_genres($1)`,
-          [idMusician]
-        )).rows
+        `SELECT * FROM "Directory".fn_get_musician_genres($1)`,
+        [idMusician]
+      )).rows
       : [];
 
     const bands = idMusician
       ? (await client.query(
-          `SELECT * FROM "Directory".fn_get_bands_of_musician($1)`,
-          [idMusician]
-        )).rows
+        `SELECT * FROM "Directory".fn_get_bands_of_musician($1)`,
+        [idMusician]
+      )).rows
       : [];
 
     const events = idMusician
       ? (await client.query(
-          `SELECT * FROM "Directory".fn_get_events_created_by_musician($1)`,
-          [idMusician]
-        )).rows
+        `SELECT * FROM "Directory".fn_get_events_created_by_musician($1)`,
+        [idMusician]
+      )).rows
       : [];
     return {
       user: {
@@ -261,43 +311,43 @@ export async function getProfileByUser(idUser: number) {
   }
 }
 
-export async function getAmenities(): Promise<Amenity[]>{
+export async function getAmenities(): Promise<Amenity[]> {
   const query = `SELECT "idAmenity", "amenityName" FROM ${AMENITY_TABLE}`;
-  try{
+  try {
     const result = await pool.query(query);
     return result.rows;
-  }catch(err){
+  } catch (err) {
     console.log("Error en getAmenities()", err);
     throw err;
   }
 }
 
-export async function getInstruments(): Promise<Instrument[]>{
-    const { rows } =  await pool.query(`SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} ORDER BY "instrumentName"`);
-    return rows;
+export async function getInstruments(): Promise<Instrument[]> {
+  const { rows } = await pool.query(`SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} ORDER BY "instrumentName"`);
+  return rows;
 }
 
-export async function getMusicianByDisplayName(name: string): Promise<Musician[]>{
-    const {rows} = await pool.query(`"SELECT * FROM 
+export async function getMusicianByDisplayName(name: string): Promise<Musician[]> {
+  const { rows } = await pool.query(`"SELECT * FROM 
                                     ${USER_PROFILE_TABLE}
                                     INNER JOIN ${MUSICIAN_TABLE}
                                     ON ${USER_PROFILE_TABLE}."idUserProfile" = ${MUSICIAN_TABLE}."idUserProfile"
                                     WHERE "displayName" LIKE $1  "`);
-    return rows;
+  return rows;
 }
 
-export async function getInstrumentById(idInstrument: number): Promise<Instrument | null>{
-    const query = `"SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} WHERE "IdInstrument" = $1"`
-    const values = [idInstrument];
-    try{
-        const result = await pool.query(query, values);
-        if (result.rows.length === 0) return null;
-        const row = result.rows[0];
-        return row;
-    }catch(err){
-        console.error("Error en getInstrumentById:", err);
-        throw err;
-    }   
+export async function getInstrumentById(idInstrument: number): Promise<Instrument | null> {
+  const query = `"SELECT "idInstrument", "instrumentName" FROM ${INSTRUMENT_TABLE} WHERE "IdInstrument" = $1"`
+  const values = [idInstrument];
+  try {
+    const result = await pool.query(query, values);
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return row;
+  } catch (err) {
+    console.error("Error en getInstrumentById:", err);
+    throw err;
+  }
 }
 
 export async function createMusician(input: CreateMusicianInput): Promise<CreatedMusician> {
