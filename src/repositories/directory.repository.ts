@@ -1,6 +1,6 @@
 import { Instrument, Amenity, Genre } from "../models/directory.model.js"
 import { CreateMusicianInput } from "../types/createMusicianInput.js";
-import {LegacyReturn} from "../types/LegacyReturn.js";
+import { LegacyReturn } from "../types/LegacyReturn.js";
 import { CreatedMusician } from "../types/createdMusician.js";
 import { CreateStudioInput } from "../types/createStudioInput.js";
 import { MusicianProfileRow } from "../types/musicianRow.js";
@@ -174,7 +174,7 @@ export async function addStudioRoomsTx(
     if (hasEquipment) {
       await client.query(
         `INSERT INTO ${STUDIO_ROOM_EQUIPMENT_TABLE} ("idRoom","equipment") VALUES ($1, $2::jsonb)`,
-        [idRoom, JSON.stringify(eq)] // ✅ Serializamos
+        [idRoom, JSON.stringify(eq)] 
       );
     }
 
@@ -200,14 +200,31 @@ export async function updateMusicianProfile(idUser: number, displayName: string 
       instruments === undefined ? null : JSON.stringify(instruments ?? []);
     const genresJson =
       genres === undefined ? null : JSON.stringify(genres ?? []);
-
+    const toNull = <T>(v: T | undefined | null) => v == null ? null : v;
+    const toNullIfEmpty = (v: string | null | undefined) =>
+      v == null ? null : (v.trim() === "" ? null : v);
     const sql = `
-      SELECT ok, "idMusician", updated_at
+      SELECT ok, "outIdMusician", updated_at
       FROM "Directory".fn_update_musician_profile(
         $1, $2, $3, $4, $5, $6, $7, $8, $9,
         $10::jsonb, $11::jsonb
       )`;
     const values = [
+      idUser,
+      toNullIfEmpty(displayName),
+      toNullIfEmpty(bio),
+      toNull(isAvailable),
+      toNull(experienceYears),
+      toNullIfEmpty(skillLevel),
+      toNull(travelRadiusKm),
+      toNullIfEmpty(visibility),
+      birthDateParam,
+      instrumentsJson,
+      genresJson,
+    ];
+
+    const { rows } = await client.query(sql, values);
+    console.log("updateMusicianProfile params:", {
       idUser,
       displayName,
       bio,
@@ -219,9 +236,8 @@ export async function updateMusicianProfile(idUser: number, displayName: string 
       birthDateParam,
       instrumentsJson,
       genresJson,
-    ];
-
-    const { rows } = await client.query(sql, values);
+    });
+    console.log(rows[0])
     return rows[0];
   } catch (err) {
     console.log("Error en updateMusicianProfile()", err);
@@ -230,7 +246,7 @@ export async function updateMusicianProfile(idUser: number, displayName: string 
     client.release();
   }
 }
-export async function getMusicianProfileByUser(idUser: number): Promise<{legacy: LegacyReturn, musicianProfile: MusicianProfileRow|null}|null> {
+export async function getMusicianProfileByUser(idUser: number): Promise<{ legacy: LegacyReturn, musicianProfile: MusicianProfileRow | null } | null> {
   const client = await pool.connect();
   try {
     const profile = await client.query(
@@ -273,17 +289,17 @@ export async function getMusicianProfileByUser(idUser: number): Promise<{legacy:
       ? (await client.query(
         `
           SELECT
-            idband        AS "idBand",
-            name          AS "name",
-            description   AS "description",
-            createdat     AS "createdAt",
-            updatedat     AS "updatedAt",
-            roleinband    AS "roleInBand",
-            isadmin       AS "isAdmin",
-            joinedat      AS "joinedAt",
-            leftat        AS "leftAt",
-            genres        AS "genres"
-          FROM "Directory".fn_get_bands_of_musician($1)
+           b."idBand",
+           b."name",
+           b."description",
+           b."createdAt",
+           b."updatedAt",
+           b."roleInBand",
+           b."isAdmin",
+           b."joinedAt",
+           b."leftAt",
+           b."genres"
+          FROM "Directory".fn_get_bands_of_musician($1) AS b
           `,
         [idMusician]
       )).rows
@@ -291,27 +307,28 @@ export async function getMusicianProfileByUser(idUser: number): Promise<{legacy:
 
     const events = idMusician
       ? (await client.query(
-                  `
+        `
           SELECT
-            idevent     AS "idEvent",
-            name        AS "name",
-            description AS "description",
-            visibility  AS "visibility",
-            capacitymax AS "capacityMax",
-            idaddress   AS "idAddress",
-            latitude    AS "latitude",
-            longitude   AS "longitude",
-            startsat    AS "startsAt",
-            endsat      AS "endsAt",
-            createdat   AS "createdAt",
-            updatedat   AS "updatedAt"
-          FROM "Directory".fn_get_events_created_by_musician($1, $2, $3, $4, $5, $6)
+            e."idEvent",
+            e."name",
+            e."description",
+            e."visibility",
+            e."capacityMax",
+            e."idAddress",
+            e."latitude",
+            e."longitude",
+            e."startsAt",
+            e."endsAt",
+            e."createdAt",
+            e."updatedAt"
+          FROM "Directory".fn_get_events_created_by_musician($1, $2, $3, $4, $5, $6) AS e
           `,
         [idMusician, false, null, null, 100, 0]
       )).rows
       : [];
-
-      const legacy: LegacyReturn = {
+    const toNum = (v: any) =>
+      v == null ? null : (typeof v === "string" ? Number(v) : v);
+    const legacy: LegacyReturn = {
       user: {
         idUser: row.iduser,
         idUserProfile,
@@ -323,56 +340,50 @@ export async function getMusicianProfileByUser(idUser: number): Promise<{legacy:
       },
       musician: idMusician
         ? {
-            idMusician,
-            experienceYears: row.experienceyears,
-            skillLevel: row.skilllevel,
-            isAvailable: row.isavailable,
-            travelRadiusKm: row.travelradiuskm,
-            visibility: row.visibility,
-            birthDate: row.birthdate,
-            instruments,
-            genres,
-          }
+          idMusician,
+          experienceYears: row.experienceyears,
+          skillLevel: row.skilllevel,
+          isAvailable: row.isavailable,
+          travelRadiusKm: row.travelradiuskm,
+          visibility: row.visibility,
+          birthDate: row.birthdate,
+          instruments,
+          genres,
+        }
         : null,
       bands,
       eventsCreated: events,
     };
-        const now = new Date();
+    const now = new Date();
     const eventsUpcoming = events.filter(
       (e) => e.startsAt && new Date(e.startsAt) >= now
     );
     const eventsUpcomingCount = eventsUpcoming.length;
     const eventsPastCount = events.length - eventsUpcomingCount;
-        const musicianProfile: MusicianProfileRow | null = idMusician
+    const musicianProfile: MusicianProfileRow | null = idMusician
       ? {
-          idMusician,
-          idUserProfile,
-          displayName: row.displayname ?? null,
-          bio: row.bio ?? null,
-          avatarUrl: row.avatarurl ?? null,
-          experienceYears: row.experienceyears ?? null,
-          skillLevel: row.skilllevel ?? null,
-          isAvailable: row.isavailable ?? null,
-          travelRadiusKm: row.travelradiuskm ?? null,
-          visibility: row.visibility ?? null,
-          birthDate: row.birthdate ?? null,
-          latitude:
-            row.latitude?.toString?.() ??
-            (typeof row.latitude === "number" ? String(row.latitude) : row.latitude) ??
-            null,
-          longitude:
-            row.longitude?.toString?.() ??
-            (typeof row.longitude === "number" ? String(row.longitude) : row.longitude) ??
-            null,
-          instruments,
-          genres,
-          bands,
-          eventsUpcoming: eventsUpcoming,
-          eventsUpcomingCount,
-          eventsPastCount,
-        }
+        idMusician,
+        idUserProfile,
+        displayName: row.displayname ?? null,
+        bio: row.bio ?? null,
+        avatarUrl: row.avatarurl ?? null,
+        experienceYears: row.experienceyears ?? null,
+        skillLevel: row.skilllevel ?? null,
+        isAvailable: row.isavailable ?? null,
+        travelRadiusKm: row.travelradiuskm ?? null,
+        visibility: row.visibility ?? null,
+        birthDate: row.birthdate ?? null,
+        latitude: toNum(row.latitude),
+        longitude: toNum(row.longitude),
+        instruments,
+        genres,
+        bands,
+        eventsUpcoming: eventsUpcoming,
+        eventsUpcomingCount,
+        eventsPastCount,
+      }
       : null;
-    return {legacy, musicianProfile};
+    return { legacy, musicianProfile };
   } finally {
     client.release();
   }
@@ -502,17 +513,31 @@ export async function createMusician(input: CreateMusicianInput): Promise<Create
 
 export async function searchMusiciansByName(
   name: string,
-  genres?: string[]
-): Promise<MusicianProfileRow[]> {
-  const sql = `SELECT * FROM "Directory".fn_get_musicians_by_display_name($1, $2)`;
-  const { rows } = await pool.query(sql, [name, genres ?? null]);
+  genres?: string[],
+  limit = 8,
+  offset = 0
+) {
+
+    const params = [
+    name,
+    (genres && genres.length) ? genres : null,
+    limit,
+    offset,
+  ];
+  const sql = `SELECT * FROM "Directory".fn_get_musicians_by_display_name($1, $2)AS f
+    JOIN "Directory"."UserProfile" up
+      ON up."idUserProfile" = f."idUserProfile"
+    ORDER BY f."displayName"
+    LIMIT $3 OFFSET $4`;
+  const { rows } = await pool.query(sql, params);
 
   return rows.map((r: any) => ({
-    ...r,
-    instruments: r.instruments ?? [],
-    genres: r.genres ?? [],
-    bands: r.bands ?? [],
-    eventsUpcoming: r.eventsupcoming ?? r.eventsUpcoming ?? [],
+    idMusician: r.idMusician,
+    idUser: r.idUser,
+    displayName: r.displayName,
+    avatarUrl: r.avatarUrl,
+    instruments: (r.instruments ?? []).map?.((x: any) => x.instrumentName) ?? [],
+    genres: (r.genres ?? []).map?.((x: any) => x.genreName) ?? [],
   }));
 }
 
