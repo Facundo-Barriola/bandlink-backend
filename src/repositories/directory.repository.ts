@@ -440,15 +440,13 @@ export async function createMusicianProfileTx(client: PoolClient, p: CreateMusic
     JSON.stringify(p.instruments ?? []),
     JSON.stringify(p.genres ?? []),
   ];
-  console.log("createMusicianProfileTx values", values);
   const { rows } = await client.query(sql, values);
-  console.log("Cree músico");
   return rows[0] as { ok: boolean; idUser: number; idUserProfile: number; idMusician: number; created_at: string };
 }
 
 export async function createStudioProfileTx(client: PoolClient, p: CreateStudioParams) {
   const sql = `
-    SELECT ok, "out_id_user" AS "idUser", "out_id_user_profile" AS "idUserProfile", "out_id_studio" AS "idStudio", created_at
+    SELECT ok, "idUser", "idUserProfile", "idStudio", created_at
     FROM "Directory".fn_create_studio_profile(
       $1,$2,$3,$4,$5,$6,
       $7,$8,$9,$10,$11::jsonb,$12,
