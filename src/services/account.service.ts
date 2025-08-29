@@ -1,12 +1,14 @@
+// services/account.service.ts
 import type { PoolClient } from "pg";
 import { withTransaction } from "../config/database.js";
 import { insertNewUserWithGroupTx } from "../repositories/user.repository.js";
-import { createUserProfileTx, createMusicianTx, createStudioTx, addStudioAmenitiesTx, addStudioRoomsTx} from "../repositories/directory.repository.js";
+import { createMusicianProfileTx, createStudioProfileTx } from "../repositories/directory.repository.js";
 import { hashPassword } from "../utils/crypto.js";
-import { CreateStudioInput } from "../types/createStudioInput.js";
+import { CreateMusicianParams } from "../types/createMusicianParams.js";
+import { CreateStudioParams } from "../types/createStudioParams.js";
 
 type Role = "musico" | "sala" | "estandar";
-function groupIdFor(role: Role) { return role === "musico" ? 2 : role === "sala" ? 3 : 4; }
+const groupIdFor = (role: Role) => (role === "musico" ? 2 : role === "sala" ? 3 : 4);
 
 export type RegisterFullInput = {
     email: string;
@@ -19,70 +21,75 @@ export type RegisterFullInput = {
         latitude?: number | null;
         longitude?: number | null;
     };
-    musician?: {
-        birthDate?: string | null;
-        experienceYears?: number | null;
-        skillLevel?: "beginner" | "intermediate" | "advanced" | "professional";
-        isAvailable?: boolean;
-        travelRadiusKm?: number | null;
-        visibility?: "city" | "province" | "country" | "global";
-        instruments: Array<{ idInstrument: number; isPrimary?: boolean }>;
-    };
-    studio?: CreateStudioInput | null // luego
+    musician?: CreateMusicianParams | null;
+    studio?: CreateStudioParams | null;
 };
+
 export class AccountService {
     static async registerFull(input: RegisterFullInput) {
         const idUserGroup = groupIdFor(input.role);
         const pwdHash = await hashPassword(input.password);
 
         return withTransaction(async (client: PoolClient) => {
-            // 1) User (Security)
+            // 1) User
             const idUser = await insertNewUserWithGroupTx(client, input.email, pwdHash, idUserGroup);
-            const profileArgs = {
-                idUser,
-                displayName: input.profile.displayName,
-                bio: input.profile.bio ?? null,
-                idAddress: input.profile.idAddress ?? null,
-                latitude: input.profile.latitude ?? null,
-                longitude: input.profile.longitude ?? null,
-            };
-            // 2) UserProfile (Directory)
-            const idUserProfile = await createUserProfileTx(client, profileArgs);
-
-            // 3) Músico (si corresponde)
+            console.log("Paso insertnewuser", idUser);
+            // 2) Perfil según rol (NO crear UserProfile aparte: lo hace la función SQL)
             if (input.role === "musico") {
-                if (!input.musician?.instruments?.length) {
-                    throw new Error("Faltan datos de músico o instrumentos");
-                }
-                const musicianArgs = {
-                    idUserProfile,
-                    birthDate: input.musician.birthDate ?? null,
-                    experienceYears: input.musician.experienceYears ?? null,
-                    skillLevel: input.musician.skillLevel ?? "intermediate",
-                    isAvailable: input.musician.isAvailable ?? true,
-                    travelRadiusKm: input.musician.travelRadiusKm ?? 10,
-                    visibility: input.musician.visibility ?? "city",
-                    instruments: input.musician.instruments ?? null,
-                }
-                const idMusician = await createMusicianTx(client, musicianArgs);
-                return { idUser, idUserProfile, idMusician };
+                const m: Partial<CreateMusicianParams> = input.musician ?? {};
+                const r = await createMusicianProfileTx(client, {
+                    idUser: idUser,
+                    displayName: input.profile.displayName,
+                    bio: input.profile.bio ?? null,
+                    idAddress: input.profile.idAddress ?? null,
+                    latitude: input.profile.latitude ?? null,
+                    longitude: input.profile.longitude ?? null,
+
+                    experienceYears: m.experienceYears ?? null,
+                    skillLevel: m.skillLevel ?? "intermediate",
+                    isAvailable: m.isAvailable ?? true,
+                    travelRadiusKm: m.travelRadiusKm ?? 10,
+                    visibility: m.visibility ?? "city",
+                    birthDate: m.birthDate ?? null,
+
+                    instruments: m.instruments ?? [],   // [] permitido
+                    genres: m.genres ?? [],
+                });
+
+                return { idUser, idUserProfile: r.idUserProfile, idMusician: r.idMusician };
             }
 
             if (input.role === "sala") {
-                if (!input.studio) throw new Error("Faltan datos de la sala/estudio.");
-                console.log("Estoy dentro del service account");
-                const idStudio = await createStudioTx(client, { idUserProfile, studio: input.studio });
+                const s: Partial<CreateStudioParams> = input.studio ?? {}; const r = await createStudioProfileTx(client, {
+                    idUser,
+                    displayName: input.profile.displayName,
+                    bio: input.profile.bio ?? null,
+                    idAddress: input.profile.idAddress ?? null,
+                    latitude: input.profile.latitude ?? null,
+                    longitude: input.profile.longitude ?? null,
 
-                await addStudioAmenitiesTx(client, { idStudio, amenityIds: input.studio.amenities ?? [] });
-                console.log("ssss");
-                const createdRooms = await addStudioRoomsTx(client, {
-                    idStudio,
-                    rooms: input.studio.rooms ?? []
+                    legalName: s.legalName ?? null,
+                    phone: s.phone ?? null,
+                    website: s.website ?? null,
+                    isVerified: s.isVerified ?? false,
+                    openingHours: s.openingHours ?? null,
+                    cancellationPolicy: s.cancellationPolicy ?? null,
+
+                    amenities: s.amenities ?? [],
+                    rooms: (s.rooms ?? []).map(rm => ({
+                        roomName: rm.roomName,
+                        capacity: rm.capacity ?? null,
+                        hourlyPrice: rm.hourlyPrice,
+                        notes: rm.notes ?? null,
+                        equipment: rm.equipment ?? [],
+                    })),
                 });
-                console.log("CreatedRooms:",createdRooms);
-                return { idUser, idUserProfile, idStudio, rooms: createdRooms };
+
+                return { idUser, idUserProfile: r.idUserProfile, idStudio: r.idStudio };
             }
-            return { idUser, idUserProfile };
+
+            // estándar
+            return { idUser };
         });
     }
 }

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { DirectoryService } from "../services/directory.service.js";
 import { LegacyReturn } from "../types/LegacyReturn.js";
+import type { AuthRequest } from "../types/authRequest.js";
 
 export async function getInstrumentsController(req: Request, res: Response) {
   const data = await DirectoryService.listInstruments();
@@ -24,26 +25,44 @@ export async function getMusicianProfileController(req: Request, res: Response) 
   }
 
   try {
-    const result = await DirectoryService.getMusicianProfileByUser(idUser);
-    if (!result || !result.legacy?.user) {
+    const r = await DirectoryService.getMusicianProfileByUser(idUser);
+    if (!r?.legacy?.user) {
       return res.status(404).json({ ok: false, error: "Perfil no encontrado" });
     }
 
-    const { legacy, musicianProfile } = result;
-    return res.json({ ok: true, data: { ...legacy, musicianProfile } });
+    const payload = {
+      userData: r.legacy.user,
+      musician: r.legacy.musician,
+      bands: r.legacy.bands ?? [],
+      eventsCreated: r.legacy.eventsCreated ?? [],
+      ...(r.musicianProfile
+        ? {
+          eventsUpcoming: r.musicianProfile.eventsUpcoming,
+          eventsUpcomingCount: r.musicianProfile.eventsUpcomingCount,
+          eventsPastCount: r.musicianProfile.eventsPastCount,
+        }
+        : {}),
+    };
+
+    return res.json({ ok: true, data: payload });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ ok: false, error: "Error del servidor" });
   }
 }
 
-export async function updateMusicianProfileController(req: Request, res: Response) {
+export async function updateMusicianProfileController(req: AuthRequest, res: Response) {
   const idUser = req.params.id;
-  console.log("headers:", req.headers["content-type"]);
-  console.log("raw body:", req.body);
-  if (!idUser) {
-    return res.status(400).json({ ok: false, error: "No se encontró usuario" });
-
+  const routeId = Number(req.params.id)
+  console.log("req userId", req.userId);
+  if(req.userId == null){
+    return res.status(401).json({ ok: false, error: "No autenticado" });
+  }
+  if (!Number.isFinite(routeId)) {
+    return res.status(400).json({ ok: false, error: "idUser inválido" });
+  }
+  if (req.userId !== routeId) {
+    return res.status(403).json({ ok: false, error: "Forbidden: no podés editar este perfil" });
   }
   const b = (req.body ?? {}) as any;
   const u = b.user ?? {};
@@ -51,9 +70,6 @@ export async function updateMusicianProfileController(req: Request, res: Respons
 
   const firstDefined = <T>(...vals: T[]) =>
     vals.find(v => v !== undefined);
-
-  const normStr = (v: any) =>
-    v == null ? null : String(v).trim();
 
   const normSkill = (v: any) => {
     if (v == null) return null;
@@ -67,7 +83,6 @@ export async function updateMusicianProfileController(req: Request, res: Respons
   const normDate = (v: any) => {
     if (v == null) return null;
     const s = String(v);
-    // Acepta '1998-06-28', '1998-06-28T03:00:00.000Z', Date, etc.
     return s.includes("T") ? s.slice(0, 10) : s;
   };
 
@@ -82,7 +97,7 @@ export async function updateMusicianProfileController(req: Request, res: Respons
   const instruments = firstDefined(b.instruments, m.instruments);
   const genres = firstDefined(b.genres, m.genres);
   try {
-    const result = await DirectoryService.updateMusicianProfile(Number(idUser), displayName, bio, isAvailable,
+    const result = await DirectoryService.updateMusicianProfile(routeId, displayName, bio, isAvailable,
       experienceYears, skillLevel, travelRadiusKm, visibility,
       birthDate, instruments, genres);
     if (!result) {
@@ -118,5 +133,33 @@ export async function getMusicianByNameController(req: Request, res: Response) {
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: "Server error" });
+  }
+}
+
+export async function getStudioProfileByIdController(req: Request, res: Response){
+  const idUser = Number(req.params.id);
+    if (!Number.isFinite(idUser)) {
+    return res.status(400).json({ ok: false, error: "idUser inválido" });
+  }
+  try {
+    const r = await DirectoryService.getStudioProfileByUser(idUser);
+    if (!r?.userData) {
+      return res.status(404).json({ ok: false, error: "Estudio no encontrado" });
+    }
+    return res.json({
+      ok: true,
+      data: {
+        userData: r.userData,
+        studio: r.studio,
+        amenities: r.amenities,
+        rooms: r.rooms,
+        eventsAtStudio: r.eventsAtStudio,
+        eventsUpcomingCount: r.eventsUpcomingCount,
+        eventsPastCount: r.eventsPastCount,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ ok: false, error: "Error del servidor" });
   }
 }
