@@ -1,6 +1,7 @@
 import { pool, withTransaction } from "../config/database.js";
 import { PoolClient } from "pg";
 import { User } from "../models/user.model.js";
+import { DeleteAccountResult } from "../types/deleteAccountResult.js";
 
 const USER_TABLE = `"Security"."User"`;
 const SESSION_TABLE = `"Security"."Session"`;
@@ -186,3 +187,29 @@ export async function insertNewUserWithGroupTx(
   const { rows } = await client.query(q, [email, passwordHash, idUserGroup]);
   return rows[0].idUser as number;
 }
+
+  export async function deleteAccountByUserId(userId: number): Promise<DeleteAccountResult> {
+    const sql = `
+      SELECT ok,
+             deleted_user,
+             deleted_events,
+             had_musician,
+             had_studio,
+             studio_rooms,
+             studio_equipments,
+             studio_amenities
+      FROM "Security".fn_delete_account($1)
+    `;
+    try {
+      const { rows } = await pool.query(sql, [userId]);
+      if (!rows.length) {
+        throw Object.assign(new Error("No result from fn_delete_account"), { code: "NO_RESULT" });
+      }
+      // Postgres devuelve snake_case → lo dejamos igual o mapeamos a camel aquí si querés
+      return rows[0] as DeleteAccountResult;
+    } catch (err: any) {
+      // err.code viene del SQLSTATE de Postgres (ej: 'P0001', 'NOUSR', etc.)
+      // Podés mapear códigos acá si querés responses más prolijas
+      throw err;
+    }
+  }

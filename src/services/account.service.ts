@@ -1,11 +1,12 @@
 // services/account.service.ts
 import type { PoolClient } from "pg";
 import { withTransaction } from "../config/database.js";
-import { insertNewUserWithGroupTx } from "../repositories/user.repository.js";
+import { insertNewUserWithGroupTx, deleteAccountByUserId } from "../repositories/user.repository.js";
 import { createMusicianProfileTx, createStudioProfileTx } from "../repositories/directory.repository.js";
 import { hashPassword } from "../utils/crypto.js";
 import { CreateMusicianParams } from "../types/createMusicianParams.js";
 import { CreateStudioParams } from "../types/createStudioParams.js";
+import { DeleteAccountResult } from "../types/deleteAccountResult.js";
 
 type Role = "musico" | "sala" | "estandar";
 const groupIdFor = (role: Role) => (role === "musico" ? 2 : role === "sala" ? 3 : 4);
@@ -92,4 +93,23 @@ export class AccountService {
             return { idUser };
         });
     }
+
+    static async deleteAccount(userId: number): Promise<DeleteAccountResult> {
+        if (!Number.isInteger(userId) || userId <= 0) {
+            const e = new Error("userId inválido");
+            (e as any).status = 400;
+            throw e;
+        }
+        const result = await deleteAccountByUserId(userId);
+
+        if (!result.ok || result.deleted_user !== 1) {
+            const e = new Error("No se pudo borrar la cuenta");
+            (e as any).status = 409;
+            (e as any).details = result;
+            throw e;
+        }
+
+        return result;
+    }
 }
+
