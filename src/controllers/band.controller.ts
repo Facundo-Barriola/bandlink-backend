@@ -1,4 +1,3 @@
-// src/controllers/band.controller.ts
 import { Request, Response } from "express";
 import { BandService } from "../services/band.service.js";
 

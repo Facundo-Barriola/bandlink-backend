@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth.routes.js";
 import addressRoutes from "./routes/address.routes.js";
 import directoryRoutes from "./routes/directory.routes.js";
 import accountRoutes from "./routes/account.routes.js";
+import networkRoutes from "./routes/network.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 const app = express();
@@ -22,6 +23,7 @@ app.use("/auth", authRoutes);
 app.use("/address", addressRoutes);
 app.use("/directory", directoryRoutes);
 app.use("/account", accountRoutes);
+app.use("/network", networkRoutes);
 
 app.use(errorHandler);
 
