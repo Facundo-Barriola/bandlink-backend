@@ -10,7 +10,6 @@ import {
   listAcceptedController,
   listArchivedController,
 } from "../controllers/network.controller.js";
-// asumimos un middleware auth que setea req.user
 import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();

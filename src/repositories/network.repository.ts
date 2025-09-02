@@ -127,7 +127,8 @@ export async function listIncomingPending(userId: number) {
       AND ($1 = c."idUserA" OR $1 = c."idUserB")
     ORDER BY c."requestedAt" DESC
   `;
-  return pool.query(sql, [userId]);
+  const{ rows } = await pool.query(sql, [userId]);
+  return rows;
 }
 
 
@@ -141,7 +142,8 @@ export async function listOutgoingPending(userId: number) {
       AND c."requestedBy" = $1
     ORDER BY c."requestedAt" DESC
   `;
-  return pool.query(sql, [userId]);
+  const{ rows } = await pool.query(sql, [userId]);
+  return rows;
 }
 
 export async function listAccepted(userId: number) {
@@ -154,7 +156,8 @@ export async function listAccepted(userId: number) {
       AND ($1 = c."idUserA" OR $1 = c."idUserB")
     ORDER BY c."updatedAt" DESC
   `;
-  return pool.query(sql, [userId]);
+  const{ rows } = await pool.query(sql, [userId]);
+  return rows;
 }
 
 export async function listArchived(userId: number) {
@@ -169,5 +172,6 @@ export async function listArchived(userId: number) {
       )
     ORDER BY c."updatedAt" DESC
   `;
-  return pool.query(sql, [userId]);
+  const{ rows } = await pool.query(sql, [userId]);
+  return rows;
 }

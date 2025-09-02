@@ -1,7 +1,5 @@
 import { pool, withTransaction } from "../config/database.js";
 
-/** ---- Tipos de entrada ---- */
-
 export type BandGenreInput = { idGenre: number };
 
 export type BandMemberInput = {
@@ -15,6 +13,7 @@ export type BandMemberInput = {
 export type CreateBandInput = {
   name: string;
   description?: string | null;
+  creatorMusicianId?: number|null;
   genres?: BandGenreInput[];          
   members?: BandMemberInput[];        
 };
@@ -51,11 +50,12 @@ export class BandRepository {
   static async createBand(input: CreateBandInput): Promise<CreateBandResult> {
     const sql = `
       SELECT ok, "idBand", created_at
-      FROM "Directory".fn_create_band($1::text, $2::text, $3::jsonb, $4::jsonb)
+      FROM "Directory".fn_create_band($1::text, $2::text, $3::int ,$4::jsonb, $5::jsonb)
     `;
     const params = [
       input.name,
       input.description ?? null,
+      input.creatorMusicianId ?? null,
       JSON.stringify(input.genres ?? []),
       JSON.stringify(input.members ?? []),
     ];
@@ -67,9 +67,9 @@ export class BandRepository {
     } catch (err: any) {
 
       if (err.code === "23505") {
-        err.httpStatus = 409; // Conflict (nombre duplicado)
+        err.httpStatus = 409; 
       } else if (err.code === "23503") {
-        err.httpStatus = 400; // Bad Request (FK inválida)
+        err.httpStatus = 400; 
       }
       throw err;
     }
@@ -101,11 +101,11 @@ export class BandRepository {
       return rows[0] as UpdateBandResult;
     } catch (err: any) {
       if (err.code === "23505") {
-        err.httpStatus = 409; // nombre duplicado
+        err.httpStatus = 409; 
       } else if (err.code === "02000") {
-        err.httpStatus = 404; // banda no existe
+        err.httpStatus = 404; 
       } else if (err.code === "23503") {
-        err.httpStatus = 400; // FK inválida
+        err.httpStatus = 400; 
       }
       throw err;
     }
