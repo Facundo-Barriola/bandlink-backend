@@ -8,6 +8,7 @@ import directoryRoutes from "./routes/directory.routes.js";
 import accountRoutes from "./routes/account.routes.js";
 import networkRoutes from "./routes/network.routes.js";
 import bandRoutes from "./routes/band.routes.js";
+import bandInvitesRoutes from "./routes/band-invites.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 const app = express();
@@ -25,6 +26,7 @@ app.use("/address", addressRoutes);
 app.use("/directory", directoryRoutes);
 app.use("/account", accountRoutes);
 app.use("/network", networkRoutes);
+app.use("/band-invites", bandInvitesRoutes);
 app.use("/bands", bandRoutes);
 app.use(errorHandler);
 

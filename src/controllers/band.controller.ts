@@ -53,6 +53,7 @@ export async function getBandController(req: Request, res: Response) {
 
   try {
     const data = await BandService.getBand(idBand);
+    console.log(data);
     return res.json({ ok: true, data });
   } catch (err: any) {
     console.error(err);
@@ -78,7 +79,7 @@ export async function updateBandController(req: Request, res: Response) {
       members: body.members === undefined ? undefined : (Array.isArray(body.members) ? body.members : []),
     };
 
-    const data = await req.app.locals.bandService.updateBand(payload);
+    const data = await BandService.updateBand(payload);
     return res.json({ ok: true, data });
   } catch (err: any) {
     console.error(err);
@@ -89,12 +90,13 @@ export async function updateBandController(req: Request, res: Response) {
 
 export async function deleteBandController(req: Request, res: Response) {
   const idBand = Number(req.params.id);
+  console.log(idBand);
   if (!Number.isFinite(idBand)) {
     return res.status(400).json({ ok: false, error: "id inválido" });
   }
 
   try {
-    const data = await req.app.locals.bandService.deleteBand(idBand);
+    const data = await BandService.deleteBand(idBand);
     return res.json({ ok: true, data });
   } catch (err: any) {
     console.error(err);
