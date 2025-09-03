@@ -55,7 +55,7 @@ export async function updateMusicianProfileController(req: AuthRequest, res: Res
   const idUser = req.params.id;
   const routeId = Number(req.params.id)
   console.log("req userId", req.userId);
-  if(req.userId == null){
+  if (req.userId == null) {
     return res.status(401).json({ ok: false, error: "No autenticado" });
   }
   if (!Number.isFinite(routeId)) {
@@ -77,7 +77,7 @@ export async function updateMusicianProfileController(req: AuthRequest, res: Res
     if (["intermedio", "intermediate"].includes(t)) return "intermediate";
     if (["principiante", "beginner"].includes(t)) return "beginner";
     if (["avanzado", "advanced"].includes(t)) return "advanced";
-    return String(v); // deja tal cual si usás valores libres
+    return String(v); 
   };
 
   const normDate = (v: any) => {
@@ -115,7 +115,6 @@ export async function getMusicianByNameController(req: Request, res: Response) {
   const limit = Math.min(Number(req.query.limit) || 8, 50);
   const offset = Number(req.query.offset) || 0;
 
-  // géneros como CSV: ?genres=rock,metal
   const genres = typeof req.query.genres === "string"
     ? (req.query.genres as string).split(",").map(s => s.trim()).filter(Boolean)
     : undefined;
@@ -136,9 +135,9 @@ export async function getMusicianByNameController(req: Request, res: Response) {
   }
 }
 
-export async function getStudioProfileByIdController(req: Request, res: Response){
+export async function getStudioProfileByIdController(req: Request, res: Response) {
   const idUser = Number(req.params.id);
-    if (!Number.isFinite(idUser)) {
+  if (!Number.isFinite(idUser)) {
     return res.status(400).json({ ok: false, error: "idUser inválido" });
   }
   try {
@@ -161,5 +160,121 @@ export async function getStudioProfileByIdController(req: Request, res: Response
   } catch (e) {
     console.error(e);
     return res.status(500).json({ ok: false, error: "Error del servidor" });
+  }
+}
+
+export async function updateStudioByOwnerController(req: AuthRequest, res: Response) {
+  if (req.userId == null) {
+    return res.status(401).json({ ok: false, error: "No autenticado" });
+  }
+  const studioId = Number(req.params.id);
+  if (!Number.isFinite(studioId)) {
+    return res.status(400).json({ ok: false, error: "idStudio inválido" });
+  }
+
+  const b = (req.body ?? {}) as any;
+  const firstDefined = <T>(...vals: T[]) => vals.find(v => v !== undefined);
+
+  const patch = {
+    displayName: firstDefined(b.displayName, b.user?.displayName),
+    bio: firstDefined(b.bio, b.user?.bio),
+    idAddress: firstDefined(b.idAddress, b.user?.idAddress),
+    latitude: firstDefined(b.latitude, b.user?.latitude),
+    longitude: firstDefined(b.longitude, b.user?.longitude),
+
+    legalName: firstDefined(b.legalName, b.studio?.legalName),
+    phone: firstDefined(b.phone, b.studio?.phone),
+    website: firstDefined(b.website, b.studio?.website),
+    isVerified: firstDefined(b.isVerified, b.studio?.isVerified),
+
+    openingHours: firstDefined(b.openingHours, b.studio?.openingHours),
+    cancellationPolicy: firstDefined(b.cancellationPolicy, b.studio?.cancellationPolicy),
+
+    amenities: firstDefined(b.amenities, b.studio?.amenities),
+    rooms: firstDefined(b.rooms, b.studio?.rooms),
+  };
+
+    try {
+    const result = await DirectoryService.updateStudioByOwner(req.userId, studioId, patch as any);
+    if (!result?.ok) {
+      const info = (result as any)?.info ?? "update_failed";
+      return res.status(400).json({ ok: false, error: info });
+    }
+    res.json({ ok: true, data: result });
+  } catch (e: any) {
+    console.error(e);
+    const status = e.httpStatus ?? 500;
+    res.status(status).json({ ok: false, error: e.message ?? "Error del servidor" });
+  }
+}
+
+export async function editStudioRoomByOwnerController(req: AuthRequest, res: Response) {
+  if (req.userId == null) {
+    return res.status(401).json({ ok: false, error: "No autenticado" });
+  }
+  const roomId = Number(req.params.id);
+  if (!Number.isFinite(roomId)) {
+    return res.status(400).json({ ok: false, error: "idRoom inválido" });
+  }
+
+  const body = (req.body ?? {}) as any;
+  const fields = {
+    roomName: body.roomName ?? null,
+    capacity: body.capacity ?? null,
+    hourlyPrice: body.hourlyPrice ?? null,
+    notes: body.notes ?? null,
+    equipment: body.equipment ?? null, // object/json
+  };
+
+  try {
+    const data = await DirectoryService.editStudioRoomByOwner(req.userId, roomId, fields);
+    res.json({ ok: true, data });
+  } catch (e: any) {
+    console.error(e);
+    const status = e.httpStatus ?? 500;
+    res.status(status).json({ ok: false, error: e.message ?? "Error del servidor" });
+  }
+}
+
+export async function searchMusiciansAdvancedController(req: Request, res: Response) {
+  const rawInstr = req.query.instrumentId;
+  const instrNum = rawInstr === undefined || rawInstr === "" ? undefined : Number(rawInstr);
+  const instrumentId = Number.isFinite(instrNum!) ? (instrNum as number) : undefined;
+
+  const rawSkill = String(req.query.skillLevel ?? "").toLowerCase();
+  const skillLevel = (["beginner","intermediate","advanced","professional"] as const)
+    .includes(rawSkill as any) ? (rawSkill as "beginner"|"intermediate"|"advanced"|"professional") : undefined;
+
+  const onlyAvailable = req.query.onlyAvailable === "true";
+
+  const rawMinExp = req.query.minExperienceYears;
+  const minExpNum = rawMinExp === undefined || rawMinExp === "" ? undefined : Number(rawMinExp);
+  const minExperienceYears = Number.isFinite(minExpNum!) ? (minExpNum as number) : undefined;
+
+  const limit = Math.min(Number(req.query.limit ?? 50) || 50, 100);
+  const offset = Number(req.query.offset ?? 0) || 0;
+
+    const params: {
+    instrumentId?: number;
+    skillLevel?: "beginner" | "intermediate" | "advanced" | "professional";
+    onlyAvailable?: boolean;
+    minExperienceYears?: number;
+    limit?: number;
+    offset?: number;
+  } = {
+    ...(instrumentId !== undefined ? { instrumentId } : {}),
+    ...(skillLevel !== undefined ? { skillLevel } : {}),
+    ...(onlyAvailable ? { onlyAvailable } : {}), // si es false, omitimos (opcional)
+    ...(minExperienceYears !== undefined ? { minExperienceYears } : {}),
+    limit,
+    offset,
+  };
+
+  try {
+    const items = await DirectoryService.searchMusiciansByInstrumentAndLevel(params);
+    res.json({ ok: true, data: items });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: "Error del servidor" });
   }
 }

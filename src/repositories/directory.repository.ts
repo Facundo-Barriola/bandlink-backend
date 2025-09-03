@@ -3,7 +3,9 @@ import { CreateMusicianParams } from "../types/createMusicianParams.js";
 import { LegacyReturn } from "../types/LegacyReturn.js";
 import { MusicianProfileRow } from "../types/musicianRow.js";
 import { StudioProfileRow } from "../types/studioProfileRow.js";
+import { UpdateStudioPatch, UpdateStudioResult } from "../types/UpdateStudioResult.js";
 import { CreateStudioParams } from "../types/createStudioParams.js";
+import { EditStudioRoomParams, StudioRoom } from "../types/editStudioRoomParams.js";
 import { pool } from "../config/database.js";
 import { PoolClient } from "pg";
 
@@ -12,7 +14,139 @@ const USER_PROFILE_TABLE = `"Directory"."UserProfile"`;
 const AMENITY_TABLE = `"Directory"."Amenity"`;
 const GENRE_TABLE = `"Directory"."Genre"`;
 
-//Con transacciones
+
+export async function updateStudioByOwner(
+  userId: number,
+  studioId: number,
+  patch: UpdateStudioPatch
+): Promise<UpdateStudioResult> {
+  const body = JSON.parse(JSON.stringify(patch ?? {}));
+
+  const sql = `
+    SELECT ok, info,
+           "idStudio","idUserProfile","legalName",phone,website,"isVerified",
+           "openingHours","cancellationPolicy",
+           "displayName",bio,"avatarUrl","idAddress",latitude,longitude,
+           "updatedStudioAt","updatedProfileAt"
+    FROM "Directory".update_studio($1,$2,$3::jsonb)
+  `;
+  const params = [userId, studioId, JSON.stringify(body)];
+
+  const { rows } = await pool.query(sql, params);
+  if (!rows.length) {
+    const err = new Error("update_studio_no_response");
+    (err as any).code = "update_studio_no_response";
+    throw err;
+  }
+
+  const r = rows[0] as any;
+
+  if (!r.ok) {
+    const err = new Error(r.info ?? "update_studio_failed");
+    (err as any).code = r.info ?? "update_studio_failed";
+    throw err;
+  }
+
+  const toNum = (v: any) => (v == null ? null : Number(v));
+  const nz = (a: any, b: any) => (a !== undefined ? a : b);
+
+  return {
+    ok: true,
+    info: r.info ?? null,
+
+    idStudio: Number(nz(r.idStudio, r.idstudio)),
+    idUserProfile: Number(nz(r.idUserProfile, r.iduserprofile)),
+
+    legalName: nz(r.legalName, r.legalname) ?? null,
+    phone: r.phone ?? null,
+    website: r.website ?? null,
+    isVerified: Boolean(nz(r.isVerified, r.isverified)),
+
+    openingHours: nz(r.openingHours, r.openinghours) ?? null,
+    cancellationPolicy: nz(r.cancellationPolicy, r.cancellationpolicy) ?? null,
+
+    displayName: nz(r.displayName, r.displayname),
+    bio: r.bio ?? null,
+    avatarUrl: nz(r.avatarUrl, r.avatarurl) ?? null,
+
+    idAddress: toNum(nz(r.idAddress, r.idaddress)),
+    latitude: r.latitude == null ? null : Number(r.latitude),
+    longitude: r.longitude == null ? null : Number(r.longitude),
+
+    updatedStudioAt: nz(r.updatedStudioAt, r.updatedstudioat),
+    updatedProfileAt: nz(r.updatedProfileAt, r.updatedprofileat),
+  };
+}
+
+export async function editRoomByOwner(
+    userId: number,
+    roomId: number,
+    fields: EditStudioRoomParams
+  ): Promise<StudioRoom> {
+    const {
+      roomName = null,
+      capacity = null,
+      hourlyPrice = null,
+      notes = null,
+      equipment = null,
+    } = fields;
+
+    const sql = `
+      SELECT ok, info,
+             "idRoom", "idStudio", "roomName", capacity, "hourlyPrice", notes, equipment
+      FROM "Directory".edit_studio_room($1,$2,$3,$4,$5,$6,$7)
+    `;
+
+    const params = [
+      userId,        // $1 p_user_id
+      roomId,        // $2 p_room_id
+      roomName,      // $3 p_room_name
+      capacity,      // $4 p_capacity
+      hourlyPrice,   // $5 p_hourly_price
+      notes,         // $6 p_notes
+      equipment,     // $7 p_equipment (jsonb)
+    ];
+
+    const { rows } = await pool.query(sql, params);
+    if (rows.length === 0) {
+      throw new Error("edit_room_no_response");
+    }
+
+    const r = rows[0] as {
+      ok: boolean;
+      info: string | null;
+      idRoom: number | null;
+      idStudio: number | null;
+      roomName: string | null;
+      capacity: number | null;
+      hourlyPrice: string | number | null; 
+      notes: string | null;
+      equipment: any | null;
+    };
+
+    if (!r.ok) {
+      const code = r.info ?? "edit_failed";
+      const err = new Error(code);
+      (err as any).code = code;
+      throw err;
+    }
+
+    // Normalizar numeric -> number
+    const priceNum =
+      typeof r.hourlyPrice === "string"
+        ? parseFloat(r.hourlyPrice)
+        : (r.hourlyPrice ?? 0);
+
+    return {
+      idRoom: Number(r.idRoom),
+      idStudio: Number(r.idStudio),
+      roomName: r.roomName ?? "",
+      capacity: r.capacity === null ? null : Number(r.capacity),
+      hourlyPrice: priceNum,
+      notes: r.notes,
+      equipment: r.equipment ?? null,
+    };
+  }
 
 export async function updateMusicianProfile(idUser: number, displayName: string | null, bio: string | null, isAvailable: boolean | null,
   experienceYears: number | null, skillLevel: string | null, travelRadiusKm: number | null, visibility: string | null, birthDate: Date | string | null,

@@ -43,24 +43,17 @@ export class BandService {
 }
 
 export async function publish(userId: number, idBand: number, dto: PublishSearchDTO) {
-  // 1) mapear user -> musician
   const idMusician = await getMusicianIdByUserId(userId);
   if (!idMusician) {
     return { ok: false, info: "no_musician_profile" as const };
   }
-
-  // 2) verificar admin
   const admin = await isBandAdmin(idBand, idMusician);
   if (!admin) {
     return { ok: false, info: "not_admin" as const };
   }
-
-  // 3) validar mínimos
   if (!dto.title || dto.title.trim().length < 3) {
     return { ok: false, info: "invalid_title" as const };
   }
-
-  // 4) insertar
   const inserted = await insertBandSearch({
     idBand,
     title: dto.title.trim(),
