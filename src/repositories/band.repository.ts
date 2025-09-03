@@ -45,6 +45,80 @@ export type DeleteBandResult = {
 
 export type GetBandResult = any; 
 
+export type BandSearchInsert = {
+  idBand: number;
+  title: string;
+  description?: string | null;
+  idInstrument?: number | null;
+  minSkillLevel?: string | null;
+  isRemote?: boolean;
+  idAddress?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export async function getMusicianIdByUserId(idUser: number): Promise<number | null> {
+  const q = `
+    SELECT m."idMusician"
+    FROM "Directory"."Musician" m
+    JOIN "Directory"."UserProfile" up ON up."idUserProfile" = m."idUserProfile"
+    WHERE up."idUser" = $1
+  `;
+  const { rows } = await pool.query(q, [idUser]);
+  return rows[0]?.idMusician ?? null;
+}
+
+export async function isBandAdmin(idBand: number, idMusician: number): Promise<boolean> {
+  const q = `
+    SELECT bm."isAdmin"
+    FROM "Directory"."BandMember" bm
+    WHERE bm."idBand" = $1 AND bm."idMusician" = $2 AND bm."leftAt" IS NULL
+  `;
+  const { rows } = await pool.query(q, [idBand, idMusician]);
+  return Boolean(rows[0]?.isAdmin);
+}
+
+export async function insertBandSearch(payload: BandSearchInsert) {
+  const {
+    idBand, title, description = null,
+    idInstrument = null, minSkillLevel = null,
+    isRemote = false, idAddress = null, latitude = null, longitude = null,
+  } = payload;
+
+  const q = `
+    INSERT INTO "Directory"."BandMusicianSearch"
+      ("idBand", title, description, "idInstrument", "minSkillLevel", "isRemote",
+       "idAddress", latitude, longitude)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    RETURNING *
+  `;
+  const params = [idBand, title, description, idInstrument, minSkillLevel, isRemote, idAddress, latitude, longitude];
+  const { rows } = await pool.query(q, params);
+  return rows[0];
+}
+
+export async function listBandSearches(idBand: number) {
+  const q = `
+    SELECT *
+    FROM "Directory"."BandMusicianSearch"
+    WHERE "idBand" = $1
+    ORDER BY "createdAt" DESC
+  `;
+  const { rows } = await pool.query(q, [idBand]);
+  return rows;
+}
+
+export async function deactivateSearch(idSearch: number, idBand: number) {
+  const q = `
+    UPDATE "Directory"."BandMusicianSearch"
+    SET "isActive" = FALSE, "updatedAt" = NOW()
+    WHERE "idSearch" = $1 AND "idBand" = $2
+    RETURNING *
+  `;
+  const { rows } = await pool.query(q, [idSearch, idBand]);
+  return rows[0] ?? null;
+}
+
 export class BandRepository {
 
   static async createBand(input: CreateBandInput): Promise<CreateBandResult> {

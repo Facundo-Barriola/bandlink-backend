@@ -6,8 +6,22 @@ import {
   UpdateBandResult,
   DeleteBandResult,
   GetBandResult,
+  getMusicianIdByUserId,
+  isBandAdmin,
+  insertBandSearch,
+  listBandSearches,
+  deactivateSearch, 
 } from "../repositories/band.repository.js";
-
+  export type PublishSearchDTO = {
+  title: string;
+  description?: string | null;
+  idInstrument?: number | null;
+  minSkillLevel?: string | null;
+  isRemote?: boolean;
+  idAddress?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+};
 export class BandService {
 
   static async createBand(newBand: CreateBandInput): Promise<CreateBandResult> {
@@ -25,4 +39,57 @@ export class BandService {
   static async getBand(idBand: number): Promise<GetBandResult> {
     return BandRepository.getBand(idBand);
   }
+
+}
+
+export async function publish(userId: number, idBand: number, dto: PublishSearchDTO) {
+  // 1) mapear user -> musician
+  const idMusician = await getMusicianIdByUserId(userId);
+  if (!idMusician) {
+    return { ok: false, info: "no_musician_profile" as const };
+  }
+
+  // 2) verificar admin
+  const admin = await isBandAdmin(idBand, idMusician);
+  if (!admin) {
+    return { ok: false, info: "not_admin" as const };
+  }
+
+  // 3) validar mínimos
+  if (!dto.title || dto.title.trim().length < 3) {
+    return { ok: false, info: "invalid_title" as const };
+  }
+
+  // 4) insertar
+  const inserted = await insertBandSearch({
+    idBand,
+    title: dto.title.trim(),
+    description: dto.description?.trim() || null,
+    idInstrument: dto.idInstrument ?? null,
+    minSkillLevel: dto.minSkillLevel ?? null,
+    isRemote: Boolean(dto.isRemote),
+    idAddress: dto.idAddress ?? null,
+    latitude: dto.latitude ?? null,
+    longitude: dto.longitude ?? null,
+  });
+
+  return { ok: true as const, search: inserted };
+}
+
+export async function listByBand(userId: number, idBand: number) {
+  const rows = await listBandSearches(idBand);
+  return { ok: true as const, items: rows };
+}
+
+export async function deactivate(userId: number, idBand: number, idSearch: number) {
+  const idMusician = await getMusicianIdByUserId(userId);
+  if (!idMusician) return { ok: false, info: "no_musician_profile" as const };
+
+  const admin = await isBandAdmin(idBand, idMusician);
+  if (!admin) return { ok: false, info: "not_admin" as const };
+
+  const updated = await deactivateSearch(idSearch, idBand);
+  if (!updated) return { ok: false, info: "not_found" as const };
+
+  return { ok: true as const, search: updated };
 }

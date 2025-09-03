@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import {pool} from "../config/database.js";
-import { BandService } from "../services/band.service.js";
+import { BandService, publish, listByBand, deactivate } from "../services/band.service.js";
 
 export async function createBandController(req: Request, res: Response) {
   try {
@@ -102,5 +102,56 @@ export async function deleteBandController(req: Request, res: Response) {
     console.error(err);
     const status = err.httpStatus ?? 500;
     return res.status(status).json({ ok: false, error: err.message ?? "Error del servidor", code: err.code });
+  }
+}
+
+export async function createSearchController(req: Request, res: Response) {
+  try {
+    const user = (req as any).user;
+    const idBand = Number(req.params.id);
+    if (!Number.isFinite(idBand)) return res.status(400).json({ ok: false, error: "idBand inválido" });
+
+    const dto = req.body ?? {};
+    const r = await publish(user.idUser, idBand, dto);
+
+    if (!r.ok) {
+      const map: any = { no_musician_profile: 403, not_admin: 403, invalid_title: 400 };
+      return res.status(map[r.info] ?? 400).json({ ok: false, error: r.info });
+    }
+    return res.status(201).json({ ok: true, data: r.search });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message ?? "Error del servidor" });
+  }
+}
+
+export async function listSearchByBandController(req: Request, res: Response) {
+  try {
+    const user = (req as any).user;
+    const idBand = Number(req.params.id);
+    if (!Number.isFinite(idBand)) return res.status(400).json({ ok: false, error: "idBand inválido" });
+
+    const r = await listByBand(user.idUser, idBand);
+    return res.json({ ok: true, data: r.items });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message ?? "Error del servidor" });
+  }
+}
+
+export async function deactivateSearchController(req: Request, res: Response) {
+  try {
+    const user = (req as any).user;
+    const idBand = Number(req.params.id);
+    const idSearch = Number(req.params.idSearch);
+    if (!Number.isFinite(idBand) || !Number.isFinite(idSearch)) {
+      return res.status(400).json({ ok: false, error: "Parámetros inválidos" });
+    }
+    const r = await deactivate(user.idUser, idBand, idSearch);
+    if (!r.ok) {
+      const map: any = { no_musician_profile: 403, not_admin: 403, not_found: 404 };
+      return res.status(map[r.info] ?? 400).json({ ok: false, error: r.info });
+    }
+    return res.json({ ok: true, data: r.search });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message ?? "Error del servidor" });
   }
 }
