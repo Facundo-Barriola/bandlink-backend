@@ -1,10 +1,12 @@
 import { getInstruments, getAmenities, getMusicianProfileByUser, getGenres, searchMusiciansByName, updateMusicianProfile, getStudioProfileByUser,
   getStudioProfileById,
-  updateStudioByOwner ,
+  updateStudioProfileByOwner,
   editRoomByOwner,
-  searchMusiciansByInstrumentAndLevel 
+  searchMusiciansByInstrumentAndLevel,
+  getStudioIdByUserID, 
+  getStudioByName
  } from "../repositories/directory.repository.js";
-import { UpdateStudioPatch, UpdateStudioResult } from "../types/UpdateStudioResult.js";
+import { UpdateStudioProfilePatch, UpdateStudioProfileResult } from "../types/UpdateStudioProfile.js";
 import { EditStudioRoomParams, StudioRoom } from "../types/editStudioRoomParams.js";
 import { LegacyReturn } from "../types/LegacyReturn.js";
 import { MusicianProfileRow } from "../types/musicianRow.js";
@@ -30,6 +32,11 @@ export class DirectoryService {
         return await getGenres();
     }
 
+    static async searchStudiosByName(name: string, limit = 8) {
+        const foundStudios = await getStudioByName(name, limit);
+        return foundStudios;
+    }
+
     static async searchMusiciansByName(musicianName: string, genres: string[] | undefined, limit = 8, offset = 0) {
         const foundMusician = await searchMusiciansByName(musicianName, genres, limit, offset);
         return foundMusician;
@@ -45,12 +52,15 @@ export class DirectoryService {
     return await getStudioProfileById(idStudio);
   }
 
-  static async updateStudioByOwner(
+  static async updateStudioProfile(
     userId: number,
-    studioId: number,
-    patch: UpdateStudioPatch
-  ): Promise<UpdateStudioResult> {
-    return await updateStudioByOwner(userId, studioId, patch);
+    patch: UpdateStudioProfilePatch
+  ): Promise<UpdateStudioProfileResult> {
+    const studioId = await getStudioIdByUserID(userId);
+    if (!studioId) {
+      throw new Error("Studio not found for the given user ID");
+    }
+    return await updateStudioProfileByOwner(userId, studioId, patch);
   }
 
   static async editStudioRoomByOwner(

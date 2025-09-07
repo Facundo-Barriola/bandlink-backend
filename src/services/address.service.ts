@@ -1,5 +1,7 @@
-import { getCountries, getProvincesByCountryId, getCitiesByProvinceId } from "../repositories/address.repository.js"; 
+import { getCountries, getProvincesByCountryId, getCitiesByProvinceId, createAddress, CreateAddressArgs } from "../repositories/address.repository.js"; 
 import { Country, Province, City } from "../models/address.model.js";
+import type { PoolClient } from "pg";
+
 
 function toPositiveInt(id: number | string, field = "id"){
     const n = Number(id);
@@ -27,5 +29,9 @@ export class AddressService {
         const id = toPositiveInt(provinceId, "provinceId");
         
         return await getCitiesByProvinceId(id);
+    }
+
+    static async createAddress(client: PoolClient,createAddressArgs: CreateAddressArgs): Promise<number> {
+        return await createAddress(client, createAddressArgs);
     }
 }

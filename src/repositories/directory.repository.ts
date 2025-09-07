@@ -2,151 +2,122 @@ import { Instrument, Amenity, Genre } from "../models/directory.model.js"
 import { CreateMusicianParams } from "../types/createMusicianParams.js";
 import { LegacyReturn } from "../types/LegacyReturn.js";
 import { MusicianProfileRow } from "../types/musicianRow.js";
-import { StudioProfileRow } from "../types/studioProfileRow.js";
-import { UpdateStudioPatch, UpdateStudioResult } from "../types/UpdateStudioResult.js";
+import { StudioProfileRow, StudioMini } from "../types/studioProfileRow.js";
+import { UpdateStudioProfileResult, UpdateStudioProfilePatch } from "../types/UpdateStudioProfile.js";
 import { CreateStudioParams } from "../types/createStudioParams.js";
 import { EditStudioRoomParams, StudioRoom } from "../types/editStudioRoomParams.js";
 import { pool } from "../config/database.js";
 import { PoolClient } from "pg";
 
 const INSTRUMENT_TABLE = `"Directory"."Instrument"`;
-const USER_PROFILE_TABLE = `"Directory"."UserProfile"`;
 const AMENITY_TABLE = `"Directory"."Amenity"`;
 const GENRE_TABLE = `"Directory"."Genre"`;
 
-
-export async function updateStudioByOwner(
+export async function updateStudioProfileByOwner(
   userId: number,
   studioId: number,
-  patch: UpdateStudioPatch
-): Promise<UpdateStudioResult> {
-  const body = JSON.parse(JSON.stringify(patch ?? {}));
-
-  const sql = `
-    SELECT ok, info,
-           "idStudio","idUserProfile","legalName",phone,website,"isVerified",
-           "openingHours","cancellationPolicy",
-           "displayName",bio,"avatarUrl","idAddress",latitude,longitude,
-           "updatedStudioAt","updatedProfileAt"
-    FROM "Directory".update_studio($1,$2,$3::jsonb)
-  `;
-  const params = [userId, studioId, JSON.stringify(body)];
-
+  patch: UpdateStudioProfilePatch
+): Promise<UpdateStudioProfileResult> {
+  const sql = `SELECT * FROM "Directory".fn_update_studio_profile($1::int,$2::int,$3::jsonb);`;
+  const params = [userId, studioId, patch ?? {}];
   const { rows } = await pool.query(sql, params);
-  if (!rows.length) {
+  if (!rows?.length) {
     const err = new Error("update_studio_no_response");
     (err as any).code = "update_studio_no_response";
     throw err;
   }
-
   const r = rows[0] as any;
-
-  if (!r.ok) {
-    const err = new Error(r.info ?? "update_studio_failed");
-    (err as any).code = r.info ?? "update_studio_failed";
+  if (r.ok !== true) {
+    const err = new Error(r.info || "update_studio_failed");
+    (err as any).code = r.info || "update_studio_failed";
     throw err;
   }
 
-  const toNum = (v: any) => (v == null ? null : Number(v));
   const nz = (a: any, b: any) => (a !== undefined ? a : b);
 
   return {
     ok: true,
-    info: r.info ?? null,
-
+    info: "updated",
     idStudio: Number(nz(r.idStudio, r.idstudio)),
-    idUserProfile: Number(nz(r.idUserProfile, r.iduserprofile)),
-
+    displayName: nz(r.displayName, r.displayname),
+    bio: r.bio ?? null,
     legalName: nz(r.legalName, r.legalname) ?? null,
     phone: r.phone ?? null,
     website: r.website ?? null,
-    isVerified: Boolean(nz(r.isVerified, r.isverified)),
-
-    openingHours: nz(r.openingHours, r.openinghours) ?? null,
     cancellationPolicy: nz(r.cancellationPolicy, r.cancellationpolicy) ?? null,
-
-    displayName: nz(r.displayName, r.displayname),
-    bio: r.bio ?? null,
-    avatarUrl: nz(r.avatarUrl, r.avatarurl) ?? null,
-
-    idAddress: toNum(nz(r.idAddress, r.idaddress)),
-    latitude: r.latitude == null ? null : Number(r.latitude),
-    longitude: r.longitude == null ? null : Number(r.longitude),
-
-    updatedStudioAt: nz(r.updatedStudioAt, r.updatedstudioat),
-    updatedProfileAt: nz(r.updatedProfileAt, r.updatedprofileat),
+    openingHours: nz(r.openingHours, r.openinghours) ?? null,
+    amenities: r.amenities ?? null,
   };
 }
-
 export async function editRoomByOwner(
-    userId: number,
-    roomId: number,
-    fields: EditStudioRoomParams
-  ): Promise<StudioRoom> {
-    const {
-      roomName = null,
-      capacity = null,
-      hourlyPrice = null,
-      notes = null,
-      equipment = null,
-    } = fields;
+  userId: number,
+  roomId: number,
+  fields: EditStudioRoomParams
+): Promise<StudioRoom> {
+  const {
+    roomName = null,
+    capacity = null,
+    hourlyPrice = null,
+    notes = null,
+    equipment = null,
+  } = fields;
 
-    const sql = `
+  const sql = `
       SELECT ok, info,
              "idRoom", "idStudio", "roomName", capacity, "hourlyPrice", notes, equipment
       FROM "Directory".edit_studio_room($1,$2,$3,$4,$5,$6,$7)
     `;
 
-    const params = [
-      userId,        // $1 p_user_id
-      roomId,        // $2 p_room_id
-      roomName,      // $3 p_room_name
-      capacity,      // $4 p_capacity
-      hourlyPrice,   // $5 p_hourly_price
-      notes,         // $6 p_notes
-      equipment,     // $7 p_equipment (jsonb)
-    ];
+  const params = [
+    userId,        // $1 p_user_id
+    roomId,        // $2 p_room_id
+    roomName,      // $3 p_room_name
+    capacity,      // $4 p_capacity
+    hourlyPrice,   // $5 p_hourly_price
+    notes,         // $6 p_notes
+    equipment,     // $7 p_equipment (jsonb)
+  ];
 
-    const { rows } = await pool.query(sql, params);
-    if (rows.length === 0) {
-      throw new Error("edit_room_no_response");
-    }
-
-    const r = rows[0] as {
-      ok: boolean;
-      info: string | null;
-      idRoom: number | null;
-      idStudio: number | null;
-      roomName: string | null;
-      capacity: number | null;
-      hourlyPrice: string | number | null; 
-      notes: string | null;
-      equipment: any | null;
-    };
-
-    if (!r.ok) {
-      const code = r.info ?? "edit_failed";
-      const err = new Error(code);
-      (err as any).code = code;
-      throw err;
-    }
-
-    // Normalizar numeric -> number
-    const priceNum =
-      typeof r.hourlyPrice === "string"
-        ? parseFloat(r.hourlyPrice)
-        : (r.hourlyPrice ?? 0);
-
-    return {
-      idRoom: Number(r.idRoom),
-      idStudio: Number(r.idStudio),
-      roomName: r.roomName ?? "",
-      capacity: r.capacity === null ? null : Number(r.capacity),
-      hourlyPrice: priceNum,
-      notes: r.notes,
-      equipment: r.equipment ?? null,
-    };
+  const { rows } = await pool.query(sql, params);
+  if (rows.length === 0) {
+    throw new Error("edit_room_no_response");
   }
+
+  const r = rows[0] as {
+    ok: boolean;
+    info: string | null;
+    idRoom: number | null;
+    idStudio: number | null;
+    roomName: string | null;
+    capacity: number | null;
+    hourlyPrice: string | number | null;
+    notes: string | null;
+    equipment: any | null;
+  };
+
+  if (!r.ok) {
+    const code = r.info ?? "edit_failed";
+    const err = new Error(code);
+    (err as any).code = code;
+    throw err;
+  }
+
+  // Normalizar numeric -> number
+  const priceNum =
+    typeof r.hourlyPrice === "string"
+      ? parseFloat(r.hourlyPrice)
+      : (r.hourlyPrice ?? 0);
+
+  return {
+    idRoom: Number(r.idRoom),
+    idStudio: Number(r.idStudio),
+    roomName: r.roomName ?? "",
+    capacity: r.capacity === null ? null : Number(r.capacity),
+    hourlyPrice: priceNum,
+    notes: r.notes,
+    equipment: r.equipment ?? null,
+  };
+}
 
 export async function updateMusicianProfile(idUser: number, displayName: string | null, bio: string | null, isAvailable: boolean | null,
   experienceYears: number | null, skillLevel: string | null, travelRadiusKm: number | null, visibility: string | null, birthDate: Date | string | null,
@@ -352,6 +323,39 @@ export async function getMusicianProfileByUser(idUser: number): Promise<{ legacy
   }
 }
 
+export async function getStudioByName(name: string, limit = 8): Promise<StudioMini[]> {
+    const sql = `
+    SELECT "idUser","idUserProfile","idStudio","displayName"
+    FROM "Directory".fn_get_studios_by_display_name($1, $2)
+  `;
+  const params = [name ?? "", limit ?? 8];
+       
+  try {
+    const { rows } = await pool.query<StudioMini>(sql, params);
+    return rows;
+  } catch (err) {
+    console.error("Error en getStudiosByName()", err);
+    throw err;
+  }
+}
+
+export async function getStudioIdByUserID(idUser: number): Promise<number | null> {
+  try{
+    const { rows } = await pool.query(`Select s."idStudio"
+    From "Directory"."Studio" s
+    INNER JOIN "Directory"."UserProfile" AS up 
+    ON up."idUserProfile" = s."idUserProfile"
+    INNER JOIN "Security"."User" AS u
+    ON u."idUser" = up."idUser"
+    WHERE u."idUser" = ${idUser};`);
+  return rows?.length ? rows[0].idStudio : null;
+  }catch(err){
+    console.log("Error en getStudioIdByUserID()", err);
+    throw err;
+  }
+  
+}
+
 export async function getAmenities(): Promise<Amenity[]> {
   const query = `SELECT "idAmenity", "amenityName" FROM ${AMENITY_TABLE}`;
   try {
@@ -386,14 +390,13 @@ export async function getInstrumentById(idInstrument: number): Promise<Instrumen
 export async function getGenres(): Promise<Genre[]> {
   const query = `Select "idGenre", "genreName" FROM ${GENRE_TABLE}`
   try {
-    const {rows} = await pool.query(query);
+    const { rows } = await pool.query(query);
     return rows
   } catch (err) {
     console.error("Error en getGenres", err);
     throw err;
   }
 }
-
 
 export async function searchMusiciansByName(
   name: string,
@@ -402,7 +405,7 @@ export async function searchMusiciansByName(
   offset = 0
 ) {
 
-    const params = [
+  const params = [
     name,
     (genres && genres.length) ? genres : null,
     limit,
@@ -546,8 +549,8 @@ export async function createMusicianProfileTx(client: PoolClient, p: CreateMusic
     p.birthDate == null
       ? null
       : typeof p.birthDate === "string"
-      ? p.birthDate.slice(0, 10)
-      : p.birthDate.toISOString().slice(0, 10);
+        ? p.birthDate.slice(0, 10)
+        : p.birthDate.toISOString().slice(0, 10);
 
   const sql = `
     SELECT ok, "idUser", "idUserProfile", "idMusician", created_at
@@ -559,7 +562,7 @@ export async function createMusicianProfileTx(client: PoolClient, p: CreateMusic
       $13::jsonb,    $14::jsonb
     )`;
   const values = [
-   p.idUser,
+    p.idUser,
     p.displayName,
     p.bio ?? null,
     p.idAddress ?? null,

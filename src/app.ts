@@ -9,6 +9,9 @@ import accountRoutes from "./routes/account.routes.js";
 import networkRoutes from "./routes/network.routes.js";
 import bandRoutes from "./routes/band.routes.js";
 import bandInvitesRoutes from "./routes/band-invites.routes.js";
+import bookingRoutes from "./routes/booking.routes.js";
+import { googleCalendarRouter } from "./routes/integrations/googleCalendar.routes.js";
+import paymentsRoutes from "./routes/payment.routes.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 const app = express();
@@ -28,6 +31,9 @@ app.use("/account", accountRoutes);
 app.use("/network", networkRoutes);
 app.use("/band-invites", bandInvitesRoutes);
 app.use("/bands", bandRoutes);
+app.use("/integrations/google-calendar", googleCalendarRouter);
+app.use("/booking", bookingRoutes);
 app.use(errorHandler);
+app.use("/payments", paymentsRoutes);
 
 export default app;

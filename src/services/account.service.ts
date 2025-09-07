@@ -7,6 +7,7 @@ import { hashPassword } from "../utils/crypto.js";
 import { CreateMusicianParams } from "../types/createMusicianParams.js";
 import { CreateStudioParams } from "../types/createStudioParams.js";
 import { DeleteAccountResult } from "../types/deleteAccountResult.js";
+import { AddressService } from "./address.service.js";
 
 type Role = "musico" | "sala" | "estandar";
 const groupIdFor = (role: Role) => (role === "musico" ? 2 : role === "sala" ? 3 : 4);
@@ -21,6 +22,12 @@ export type RegisterFullInput = {
         idAddress?: number | null;
         latitude?: number | null;
         longitude?: number | null;
+        address?: {
+            idCity: number;
+            street: string;
+            streetNum: number;
+            addressDesc?: string | null;
+        };
     };
     musician?: CreateMusicianParams | null;
     studio?: CreateStudioParams | null;
@@ -61,11 +68,33 @@ export class AccountService {
             }
 
             if (input.role === "sala") {
-                const s: Partial<CreateStudioParams> = input.studio ?? {}; const r = await createStudioProfileTx(client, {
+                const s: Partial<CreateStudioParams> = input.studio ?? {};
+                let idAddress =
+                    input.profile.idAddress ??
+                    s.idAddress ??
+                    null;
+                const addrBlock = input.profile.address ?? s.address ?? null;
+
+                if (!idAddress && addrBlock) {
+                    const { idCity, street, streetNum, addressDesc } = addrBlock;
+                    if (!idCity || !street?.trim() || !Number.isFinite(Number(streetNum))) {
+                        throw new Error("Faltan datos para crear la dirección");
+                    }
+                    // crea dentro de la MISMA transacción
+                    idAddress = await AddressService.createAddress(client, {
+                        idCity,
+                        street: street.trim(),
+                        streetNum: Number(streetNum),
+                        addressDesc: addressDesc ?? null,
+                    });
+                    // opcional: log
+                    console.log("Address creada idAddress=", idAddress);
+                }
+                const r = await createStudioProfileTx(client, {
                     idUser,
                     displayName: input.profile.displayName,
                     bio: input.profile.bio ?? null,
-                    idAddress: input.profile.idAddress ?? null,
+                    idAddress,
                     latitude: input.profile.latitude ?? null,
                     longitude: input.profile.longitude ?? null,
 

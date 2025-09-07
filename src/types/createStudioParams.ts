@@ -5,6 +5,12 @@ export type CreateStudioParams = {
   idAddress?: number | null;
   latitude?: number | null;
   longitude?: number | null;
+  address?: {
+    idCity: number;
+    street: string;
+    streetNum: number;
+    addressDesc?: string | null;
+  };
 
   legalName?: string | null;
   phone?: string | null;

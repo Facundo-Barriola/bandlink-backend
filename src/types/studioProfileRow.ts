@@ -26,3 +26,10 @@ export type StudioProfileRow = {
   eventsUpcomingCount: number;
   eventsPastCount: number;
 };
+
+export type StudioMini = {
+  idUser: number;
+  idUserProfile: number;
+  idStudio: number;
+  displayName: string;
+};

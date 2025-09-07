@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { DirectoryService } from "../services/directory.service.js";
 import { LegacyReturn } from "../types/LegacyReturn.js";
 import type { AuthRequest } from "../types/authRequest.js";
+import { UpdateStudioProfilePatch } from "../types/UpdateStudioProfile.js";
 
 export async function getInstrumentsController(req: Request, res: Response) {
   const data = await DirectoryService.listInstruments();
@@ -77,7 +78,7 @@ export async function updateMusicianProfileController(req: AuthRequest, res: Res
     if (["intermedio", "intermediate"].includes(t)) return "intermediate";
     if (["principiante", "beginner"].includes(t)) return "beginner";
     if (["avanzado", "advanced"].includes(t)) return "advanced";
-    return String(v); 
+    return String(v);
   };
 
   const normDate = (v: any) => {
@@ -164,47 +165,83 @@ export async function getStudioProfileByIdController(req: Request, res: Response
 }
 
 export async function updateStudioByOwnerController(req: AuthRequest, res: Response) {
-  if (req.userId == null) {
-    return res.status(401).json({ ok: false, error: "No autenticado" });
-  }
+  const userId = req.userId;
+  if (userId == null) return res.status(401).json({ ok: false, error: "No autenticado" });
+
   const studioId = Number(req.params.id);
   if (!Number.isFinite(studioId)) {
     return res.status(400).json({ ok: false, error: "idStudio inválido" });
   }
 
   const b = (req.body ?? {}) as any;
-  const firstDefined = <T>(...vals: T[]) => vals.find(v => v !== undefined);
-
-  const patch = {
-    displayName: firstDefined(b.displayName, b.user?.displayName),
-    bio: firstDefined(b.bio, b.user?.bio),
-    idAddress: firstDefined(b.idAddress, b.user?.idAddress),
-    latitude: firstDefined(b.latitude, b.user?.latitude),
-    longitude: firstDefined(b.longitude, b.user?.longitude),
-
-    legalName: firstDefined(b.legalName, b.studio?.legalName),
-    phone: firstDefined(b.phone, b.studio?.phone),
-    website: firstDefined(b.website, b.studio?.website),
-    isVerified: firstDefined(b.isVerified, b.studio?.isVerified),
-
-    openingHours: firstDefined(b.openingHours, b.studio?.openingHours),
-    cancellationPolicy: firstDefined(b.cancellationPolicy, b.studio?.cancellationPolicy),
-
-    amenities: firstDefined(b.amenities, b.studio?.amenities),
-    rooms: firstDefined(b.rooms, b.studio?.rooms),
-  };
-
+  const pick = <T>(...vals: T[]) => vals.find(v => v !== undefined);
+  console.log("Body recibido:", b);
+  // ---- openingHours: objeto JSON o null (si viene string, parsear)
+  let openingHours = pick(b.openingHours, b.studio?.openingHours) as unknown;
+  if (typeof openingHours === "string") {
     try {
-    const result = await DirectoryService.updateStudioByOwner(req.userId, studioId, patch as any);
-    if (!result?.ok) {
-      const info = (result as any)?.info ?? "update_failed";
-      return res.status(400).json({ ok: false, error: info });
+      openingHours = openingHours.trim() === "" ? null : JSON.parse(openingHours);
+    } catch {
+      return res.status(400).json({ ok: false, error: "openingHours debe ser JSON objeto o null" });
     }
-    res.json({ ok: true, data: result });
+  }
+  if (openingHours != null && typeof openingHours !== "object") {
+    return res.status(400).json({ ok: false, error: "openingHours debe ser un objeto JSON o null" });
+  }
+
+  let amenitiesIn = pick(b.amenities, b.studio?.amenities) as unknown;
+  let amenities: number[] | undefined = undefined;
+  if (amenitiesIn !== undefined) {
+    if (!Array.isArray(amenitiesIn)) {
+      return res.status(400).json({ ok: false, error: "amenities debe ser un array de IDs" });
+    }
+    amenities = Array.from(new Set(
+      amenitiesIn.map((x: any) => Number(x)).filter((n: any) => Number.isFinite(n))
+    ));
+  }
+  const patch: UpdateStudioProfilePatch = {};
+
+  const displayName = pick(b.displayName, b.user?.displayName);
+  if (displayName !== undefined) {
+    const d = String(displayName ?? "").trim();
+    if (!d) return res.status(400).json({ ok: false, error: "displayName no puede estar vacío" });
+    if (d.length > 50) return res.status(400).json({ ok: false, error: "displayName excede 50 caracteres" });
+    patch.displayName = d;
+  }
+  const bio = pick(b.bio, b.user?.bio);
+  if (bio !== undefined) patch.bio = bio ?? null;
+
+  const legalName = pick(b.legalName, b.studio?.legalName);
+  if (legalName !== undefined) patch.legalName = legalName ?? null;
+
+  const phone = pick(b.phone, b.studio?.phone);
+  if (phone !== undefined) patch.phone = phone ?? null;
+
+  const website = pick(b.website, b.studio?.website);
+  if (website !== undefined) patch.website = website ?? null;
+
+  const cancellationPolicy = pick(b.cancellationPolicy, b.studio?.cancellationPolicy);
+  if (cancellationPolicy !== undefined) patch.cancellationPolicy = cancellationPolicy ?? null;
+
+  if (openingHours !== undefined) {
+    patch.openingHours = openingHours as Record<string, any> | null;
+  }
+
+  if (amenities !== undefined) {
+    patch.amenities = amenities;
+  }
+
+  try {
+    console.log("userID", userId, "studioId", studioId, "patch", patch);
+    const result = await DirectoryService.updateStudioProfile(userId, patch);
+    return res.json({ ok: true, data: result });
   } catch (e: any) {
     console.error(e);
-    const status = e.httpStatus ?? 500;
-    res.status(status).json({ ok: false, error: e.message ?? "Error del servidor" });
+    const code = e?.code || e?.message || "update_studio_failed";
+    const status = code === "not_allowed_or_not_found" ? 404
+      : code.startsWith("invalid_") || code.endsWith("_required") ? 400
+        : 500;
+    return res.status(status).json({ ok: false, error: code });
   }
 }
 
@@ -236,14 +273,32 @@ export async function editStudioRoomByOwnerController(req: AuthRequest, res: Res
   }
 }
 
+export async function getStudiosByNameController(req: Request, res: Response) {
+ const rawQ = req.query.q;
+ console.log(rawQ);
+  const q = String(Array.isArray(req.query.q) ? req.query.q[0] ?? "" : req.query.q ?? "").trim();
+  const n = Number(req.query.limit);
+  const limit = Number.isFinite(n) ? Math.min(Math.max(n, 1), 50) : 8;
+  if (q.length < 2) {
+    return res.json({ ok: true, data: { items: [], q, limit } });
+  }
+  try {
+    const items = await DirectoryService.searchStudiosByName(q, limit);
+    return res.json({ ok: true, data: { items, q, limit } });
+  } catch (e) {
+    console.error("searchStudiosByNameController()", e);
+    return res.status(500).json({ ok: false, error: "Error del servidor" });
+  }
+}
+
 export async function searchMusiciansAdvancedController(req: Request, res: Response) {
   const rawInstr = req.query.instrumentId;
   const instrNum = rawInstr === undefined || rawInstr === "" ? undefined : Number(rawInstr);
   const instrumentId = Number.isFinite(instrNum!) ? (instrNum as number) : undefined;
 
   const rawSkill = String(req.query.skillLevel ?? "").toLowerCase();
-  const skillLevel = (["beginner","intermediate","advanced","professional"] as const)
-    .includes(rawSkill as any) ? (rawSkill as "beginner"|"intermediate"|"advanced"|"professional") : undefined;
+  const skillLevel = (["beginner", "intermediate", "advanced", "professional"] as const)
+    .includes(rawSkill as any) ? (rawSkill as "beginner" | "intermediate" | "advanced" | "professional") : undefined;
 
   const onlyAvailable = req.query.onlyAvailable === "true";
 
@@ -254,7 +309,7 @@ export async function searchMusiciansAdvancedController(req: Request, res: Respo
   const limit = Math.min(Number(req.query.limit ?? 50) || 50, 100);
   const offset = Number(req.query.offset ?? 0) || 0;
 
-    const params: {
+  const params: {
     instrumentId?: number;
     skillLevel?: "beginner" | "intermediate" | "advanced" | "professional";
     onlyAvailable?: boolean;
