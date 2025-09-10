@@ -7,11 +7,11 @@ import {
 import { create } from "domain";
 
 function unwrapMP<T extends object>(r: any): T {
-  if (r && typeof r === "object") {
-    if ("body" in r && r.body) return r.body as T;
-    if ("response" in r && r.response) return r.response as T;
-  }
-  return r as T;
+    if (r && typeof r === "object") {
+        if ("body" in r && r.body) return r.body as T;
+        if ("response" in r && r.response) return r.response as T;
+    }
+    return r as T;
 }
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
@@ -37,16 +37,15 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
         }],
         statement_descriptor: "BandLink",
         back_urls: {
-            success: process.env.CLIENT_ORIGIN + "/payments/success",
-            failure: process.env.CLIENT_ORIGIN + "/payments/failure",
-            pending: process.env.CLIENT_ORIGIN + "/payments/pending",
+            success: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
+            failure: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
+            pending: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
         },
         //auto_return: "approved",
         metadata: { idBooking },
         notification_url: (process.env.MP_PUBLIC_URL ?? "http://localhost:4000") + "/payments/webhook"
     };
-    console.log("Preference a crear:", preference);
-    console.log(mpClient.accessToken);
+
     try {
         const prefRes = await new Preference(mpClient).create({ body: preference as any });
         const pref = unwrapMP<any>(prefRes);
@@ -60,12 +59,6 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
         const initPoint: string | undefined =
             pref.init_point ?? pref.initPoint;
 
-        console.log("pref keys:", Object.keys(pref));
-        console.log("collector_id:", collectorId);
-        console.log("sandbox_init_point:", sandboxInitPoint);
-        console.log("init_point:", initPoint);
-        console.log("preferenceId:", prefId);
-
         if (!prefId) {
             throw new Error("Mercado Pago no devolvió un preferenceId en la respuesta");
         }
@@ -78,6 +71,7 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
             payerIdUser: idUser ?? null,     // opcional: si querés permitir null
             payerEmail: payerEmail ?? null,
         });
+        console.log("", prefId, payment.idPayment, initPoint);
 
         return { ok: true, preferenceId: prefId, idPayment: payment.idPayment, initPoint };
 
@@ -103,7 +97,14 @@ export async function handleWebhook(payload: any, headers: Record<string, string
     if (!paymentId) return { ok: false, info: "Sin payment id" };
 
     const resp = await new Payment(mpClient).get({ id: Number(paymentId) });
+
     const body = (resp as any).body ?? resp;
+    console.log("[MP][webhook] topic:", topic, "paymentId:", paymentId);
+    console.log("[MP][webhook] status:", body.status, "status_detail:", body.status_detail);
+    console.log("[MP][webhook] order.id:", body.order?.id, "pref_id(meta):", body.metadata?.preference_id);
+    console.log("[MP][webhook] payer:", {
+        id: body.payer?.id, email: body.payer?.email, type: body.payer?.type
+    });
     const mpStatus: string = body.status;
     const mpPrefId: string | null =
         body.order?.id ?? body.metadata?.preference_id ?? null;

@@ -12,6 +12,7 @@ import bandInvitesRoutes from "./routes/band-invites.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
 import { googleCalendarRouter } from "./routes/integrations/googleCalendar.routes.js";
 import paymentsRoutes from "./routes/payment.routes.js";
+import bookingReceiptRouter from "./routes/integrations/bookings.receipt.routes.js"
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 const app = express();
@@ -22,6 +23,10 @@ app.use(cors({
   origin: ENV.CLIENT_ORIGIN,
   credentials: true,               
 }));
+app.use((req, _res, next) => {
+  console.log(`[IN] ${req.method} ${req.path} ct=${req.headers["content-type"]}`);
+  next();
+});
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
 app.use("/auth", authRoutes);
@@ -35,5 +40,6 @@ app.use("/integrations/google-calendar", googleCalendarRouter);
 app.use("/booking", bookingRoutes);
 app.use(errorHandler);
 app.use("/payments", paymentsRoutes);
+app.use("/receipts", bookingReceiptRouter);
 
 export default app;

@@ -1,4 +1,5 @@
 import { pool } from "../config/database.js";
+import { PoolClient } from "pg";
 
 export async function createRoomBooking(
   idUser: number,
@@ -19,6 +20,14 @@ export async function createRoomBooking(
     idBooking: r.idbooking ?? r.idBooking ?? null,
     confirmationCode: r.confirmationcode ?? r.confirmationCode ?? null,
   };
+}
+
+export async function getPaymentByBooking(idBooking: number) {
+  const { rows } = await pool.query(
+    `SELECT * FROM "Billing"."Payment" WHERE "idBooking" = $1 LIMIT 1`,
+    [idBooking]
+  );
+  return rows[0] ?? null;
 }
 
 export async function updateRoomBooking(
@@ -82,43 +91,118 @@ export async function getBookingsForStudio(
   return result.rows;
 }
 
+export type BookingWithPaymentRow = {
+  idBooking: number;
+  startsAt: string;   // ISO en PG -> string
+  endsAt: string;
+  bookingStatus: string;
+  totalAmount: string | number | null;
+
+  userId: number | null;
+  userDisplayName: string | null;
+  userEmail: string | null;
+
+  roomName: string | null;
+
+  paymentId: string | number | null;
+  paymentStatus: string | null;
+  provider: string | null;
+  paymentAmount: string | number | null;
+  paymentCurrency: string | null;
+  paidAt: string | null;
+};
+
+export async function refundPaymentByBooking(
+  idBooking: number,
+  refundedStatus: string,
+  refundedAmount: number
+) {
+  const { rows } = await pool.query(
+    `
+    UPDATE "Billing"."Payment"
+    SET 
+      status = $2,
+      amount = $3
+    WHERE "idBooking" = $1
+    RETURNING *;
+    `,
+    [idBooking, refundedStatus, refundedAmount]
+  );
+
+  return rows[0];
+}
+
 export async function getBookingWithPayment(idBooking: number) {
-  // ajustá nombres reales de tus tablas/campos
-  const { rows } = await pool.query(`
-    SELECT b."idBooking",
-           b."startsAt",
-           b."endsAt",
-           b.status,
-           b."totalAmount",
-           u."idUser",
-           up."displayName",
-           u.email,
-           r."roomName",
-           p."idPayment",
-           p.status,
-           p."provider"
+  const { rows } = await pool.query<BookingWithPaymentRow>(
+    `
+    SELECT
+      b."idBooking"                               AS "idBooking",
+      b."startsAt"                                AS "startsAt",
+      b."endsAt"                                  AS "endsAt",
+      b.status                                    AS "bookingStatus",
+      b."totalAmount"                             AS "totalAmount",
+
+      u."idUser"                                  AS "userId",
+      up."displayName"                            AS "userDisplayName",
+      u.email                                     AS "userEmail",
+
+      r."roomName"                                AS "roomName",
+
+      p."idPayment"                               AS "paymentId",
+      p.status                                    AS "paymentStatus",
+      p.provider                                  AS "provider",
+      p.amount                                    AS "paymentAmount",
+      TRIM(p.currency)                            AS "paymentCurrency",
+      to_char(p."paidAt", 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "paidAt"
     FROM "Directory"."RoomBooking" b
-    LEFT JOIN "Security"."User" u ON u."idUser" = b."idUser"
-	LEFT JOIN "Directory"."UserProfile" up ON up."idUser" = b."idUser"
-    LEFT JOIN "Directory"."StudioRoom" r ON r."idRoom" = b."idRoom"
-    LEFT JOIN "Billing"."Payment" p ON p."idBooking" = b."idBooking" 
+    LEFT JOIN "Security"."User" u
+      ON u."idUser" = b."idUser"
+    LEFT JOIN "Directory"."UserProfile" up
+      ON up."idUser" = b."idUser"
+    LEFT JOIN "Directory"."StudioRoom" r
+      ON r."idRoom" = b."idRoom"
+    -- Traer SOLO el último pago de esa reserva
+    LEFT JOIN LATERAL (
+      SELECT p2.*
+      FROM "Billing"."Payment" p2
+      WHERE p2."idBooking" = b."idBooking"
+      ORDER BY p2."createdAt" DESC
+      LIMIT 1
+    ) p ON TRUE
     WHERE b."idBooking" = $1
     LIMIT 1
-  `, [idBooking]);
+    `,
+    [idBooking]
+  );
 
   const r = rows[0];
   if (!r) return null;
+
   return {
     idBooking: r.idBooking,
     startsAt: r.startsAt,
     endsAt: r.endsAt,
-    status: r.status,
-    totalAmount: r.totalAmount,
-    user: { idUser: r.idUser, name: r.userName, email: r.userEmail },
+    status: r.bookingStatus,
+    totalAmount: r.totalAmount != null ? Number(r.totalAmount) : null,
+
+    user: {
+      idUser: r.userId,
+      name: r.userDisplayName,
+      email: r.userEmail,
+    },
+
     room: { name: r.roomName },
-    paymentId: r.paymentId,
-    paymentStatus: r.paymentStatus,
-    provider: r.provider,
+
+    payment: r.paymentId
+      ? {
+          idPayment: r.paymentId,
+          status: r.paymentStatus,
+          provider: r.provider,
+          amount: r.paymentAmount != null ? Number(r.paymentAmount) : null,
+          currency: r.paymentCurrency ?? null,
+          paidAt: r.paidAt,
+        }
+      : null,
   };
 }
 
@@ -162,4 +246,67 @@ export async function getBookingForEmail(idBooking: number) {
     streetAddress: r.street,
     streetNumber: r.streetNum
   };
+}
+
+export async function getForUpdateByOwner(client: PoolClient, idBooking: number, idUser: number) {
+    const { rows } = await client.query(
+      `
+      SELECT b.*
+      FROM "Directory"."RoomBooking" b
+      WHERE b."idBooking" = $1
+        AND b."idUser" = $2
+        AND b.status NOT IN ('cancelled_by_studio','cancelled_by_user')
+      FOR UPDATE
+      `,
+      [idBooking, idUser]
+    );
+    return rows[0] ?? null;
+}
+
+export async function hasOverlapInRoom(
+    client: PoolClient,
+    idRoom: number,
+    newStartsAtIso: string,
+    newEndsAtIso: string,
+    excludeIdBooking: number
+  ) {
+    const { rows } = await client.query(
+      `
+      SELECT 1
+      FROM "Directory"."RoomBooking" rb
+      WHERE rb."idRoom" = $1
+        AND rb."idBooking" <> $4
+        AND rb.status NOT IN ('cancelled_by_studio','cancelled_by_user')
+        -- overlap simple: NOT(end <= other.start OR start >= other.end)
+        AND NOT ($3::timestamp <= rb."startsAt" OR $2::timestamp >= rb."endsAt")
+      LIMIT 1
+      `,
+      [idRoom, newStartsAtIso, newEndsAtIso, excludeIdBooking]
+    );
+    return Boolean(rows[0]);
+}
+
+export async function updateScheduleAndMaybeTotal(
+    client: PoolClient,
+    idBooking: number,
+    newStartsAtIso: string,
+    newEndsAtIso: string
+  ) {
+    // Si hay pricePerHour, recalcula; si no, deja totalAmount como está.
+    const { rows } = await client.query(
+      `
+      UPDATE "Directory"."RoomBooking" b
+      SET
+        "startsAt" = $2::timestamp,
+        "endsAt"   = $3::timestamp,
+        "totalAmount" = CASE
+          WHEN b."pricePerHour" IS NULL THEN b."totalAmount"
+          ELSE b."pricePerHour" * (EXTRACT(EPOCH FROM ($3::timestamp - $2::timestamp)) / 3600.0)
+        END
+      WHERE b."idBooking" = $1
+      RETURNING *;
+      `,
+      [idBooking, newStartsAtIso, newEndsAtIso]
+    );
+    return rows[0] ?? null;
 }

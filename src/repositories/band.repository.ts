@@ -221,6 +221,18 @@ export class BandRepository {
       throw err;
     }
   }
+
+  static async getBandSearches(idBand: number){
+    const sql = `SELECT "idSearch", "idBand", title, description, "minSkillLevel" FROM "Directory"."BandMusicianSearch"
+    WHERE idBand = $1 `;
+    const {rows} = await pool.query(sql, [idBand]);
+      if (!rows.length ) {
+        const e = new Error("Busquedas no encontradas");
+        (e as any).httpStatus = 404;
+        throw e;
+      }
+      return rows;
+  }
 }
 
 

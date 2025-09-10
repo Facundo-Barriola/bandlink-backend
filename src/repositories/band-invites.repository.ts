@@ -80,7 +80,7 @@ export async function acceptBandInvite(
   idBandInvite: number
 ): Promise<InviteDecisionResult> {
   const sql = `
-    SELECT ok, "idBand", status, info
+    SELECT ok, "out_idBand", status, info
     FROM "Directory".fn_accept_band_invite($1,$2)
   `;
   const { rows } = await pool.query(sql, [targetMusicianId, idBandInvite]);
