@@ -16,7 +16,7 @@ import bookingReceiptRouter from "./routes/integrations/bookings.receipt.routes.
 import { errorHandler } from "./middlewares/errorHandler.js";
 
 const app = express();
-
+app.use("/payments/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
@@ -38,8 +38,10 @@ app.use("/band-invites", bandInvitesRoutes);
 app.use("/bands", bandRoutes);
 app.use("/integrations/google-calendar", googleCalendarRouter);
 app.use("/booking", bookingRoutes);
-app.use(errorHandler);
 app.use("/payments", paymentsRoutes);
 app.use("/receipts", bookingReceiptRouter);
+
+
+app.use(errorHandler);
 
 export default app;

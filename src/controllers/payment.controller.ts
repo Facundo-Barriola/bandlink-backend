@@ -1,7 +1,17 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import type { AuthRequest } from "../types/authRequest.js";
 import { createPaymentForBooking, handleWebhook } from "../services/payment.service.js";
 import { getProvider } from "../services/payments/provider.factory.js";
+import fs from "fs";
+import path from "path";
+
+
+function ensureDir(p: string) {
+  try { fs.mkdirSync(p, { recursive: true }); } catch {}
+}
+
+
+
 
 export async function createPaymentForBookingController(req: AuthRequest, res: Response) {
   const idUser = req.user?.idUser as number;
@@ -19,17 +29,24 @@ export async function createPaymentForBookingController(req: AuthRequest, res: R
   }
 }
 
-export async function webhookController(req: AuthRequest, res: Response) {
-  try {
-    console.log("[MP][webhook] headers:", JSON.stringify(req.headers));
-    console.log("[MP][webhook] body:", JSON.stringify(req.body));
-    const result = await handleWebhook(req.body, req.headers as any);
-    if (!result.ok) return res.status(400).json(result);
-    return res.status(200).json({ ok: true });
-  } catch (e) {
-    console.error("webhook error", e);
-    return res.status(500).json({ ok: false });
-  }
+export async function webhookController(req: Request, res: Response) {
+  
+    // 1) obtener raw (lo garantiza app.use("/payments/webhook", express.raw(...)))
+  const raw = Buffer.isBuffer(req.body) ? req.body.toString() : (req as any).rawBody ?? "";
+
+    // 3) ACK rápido para que MP no reintente
+  res.sendStatus(200);
+   setImmediate(async () => {
+    try {
+      let payload: any = {};
+      try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
+      console.log('[DBG] token ends with', process.env.MP_ACCESS_TOKEN?.slice(-6));
+
+      await handleWebhook(payload, Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, String(v)])));
+    } catch (e) {
+      console.error("[MP WEBHOOK] async error", e);
+    }
+  });
 }
 
 export async function createPaymentForBookingUnifiedController(req: AuthRequest, res: Response) {

@@ -1,10 +1,11 @@
 import { mercadopago, mpClient } from "../config/mercadopago.js";
-import { Preference, Payment } from "mercadopago";
+import { Preference, Payment, MerchantOrder } from "mercadopago";
 import {
     getBookingForPayment, upsertActivePayment, markPaymentStatus,
-    addPaymentEvent, setBookingPaid, findPaymentByProviderPref
+    addPaymentEvent, setBookingPaid, findPaymentByProviderPref, findActivePaymentByBookingId,
+    linkProviderPaymentIdByPref,     // <-- NUEVO
+  markPaymentStatusById
 } from "../repositories/payment.repository.js";
-import { create } from "domain";
 
 function unwrapMP<T extends object>(r: any): T {
     if (r && typeof r === "object") {
@@ -13,6 +14,21 @@ function unwrapMP<T extends object>(r: any): T {
     }
     return r as T;
 }
+
+async function fetchPaymentWithRetry(id: number, tries = 5, delay = 500) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const resp = await new Payment(mpClient).get({ id });
+      return (resp as any).body ?? resp;
+    } catch (e: any) {
+      if (e?.status !== 404 || i === tries - 1) throw e;
+      await new Promise(r => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
+  throw new Error("Unreachable");
+}
+
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
@@ -28,6 +44,8 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
     const amount = round2(price);
     console.log("Amount a cobrar:", amount);
     // Crear preference en MP
+    //const email = "TESTUSER5463626794354640670";
+    console.log(process.env.MP_PUBLIC_URL )
     const preference = {
         items: [{
             title: `Reserva sala #${idBooking}`,
@@ -42,7 +60,10 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
             pending: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
         },
         //auto_return: "approved",
-        metadata: { idBooking },
+        binary_mode: true,       
+        payer: payerEmail ? { email: payerEmail } : undefined,
+        external_reference: `booking:${idBooking}`,       
+        metadata: { bookingId: idBooking, env: 'dev' },
         notification_url: (process.env.MP_PUBLIC_URL ?? "http://localhost:4000") + "/payments/webhook"
     };
 
@@ -71,7 +92,7 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
             payerIdUser: idUser ?? null,     // opcional: si querés permitir null
             payerEmail: payerEmail ?? null,
         });
-        console.log("", prefId, payment.idPayment, initPoint);
+        console.log("", prefId, payment.idPayment, initPoint)
 
         return { ok: true, preferenceId: prefId, idPayment: payment.idPayment, initPoint };
 
@@ -89,36 +110,68 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
 
 }
 
-// Procesa webhook genérico (vienen variantes según versión)
 export async function handleWebhook(payload: any, headers: Record<string, string>) {
-    const topic = payload?.type || payload?.topic;
-    const paymentId = payload?.data?.id || payload?.resource?.split("/").pop();
+  const topic = payload?.type || payload?.topic;
+  const paymentId = payload?.data?.id || payload?.resource?.split("/").pop();
 
-    if (!paymentId) return { ok: false, info: "Sin payment id" };
+  if (!paymentId) return { ok: false, info: "Sin payment id" };
 
-    const resp = await new Payment(mpClient).get({ id: Number(paymentId) });
+  // 1) Leer el pago con retry (evita 404 por latencia)
+  const p = await fetchPaymentWithRetry(Number(paymentId));
 
-    const body = (resp as any).body ?? resp;
-    console.log("[MP][webhook] topic:", topic, "paymentId:", paymentId);
-    console.log("[MP][webhook] status:", body.status, "status_detail:", body.status_detail);
-    console.log("[MP][webhook] order.id:", body.order?.id, "pref_id(meta):", body.metadata?.preference_id);
-    console.log("[MP][webhook] payer:", {
-        id: body.payer?.id, email: body.payer?.email, type: body.payer?.type
-    });
-    const mpStatus: string = body.status;
-    const mpPrefId: string | null =
-        body.order?.id ?? body.metadata?.preference_id ?? null;
-    const paidAt: Date | null =
-        body.date_approved ? new Date(body.date_approved) : null;
-    const payment = mpPrefId ? await findPaymentByProviderPref(mpPrefId) : null;
-    if (!payment) return { ok: false, info: "Payment interno no encontrado" };
+  console.log("[MP][webhook] topic:", topic, "paymentId:", paymentId);
+  console.log("[MP][webhook] status:", p.status, "status_detail:", p.status_detail);
+  console.log("[MP][webhook] order.id:", p.order?.id,
+              "ext_ref:", p.external_reference,
+              "meta:", p.metadata);
 
-    await addPaymentEvent(payment.idPayment, "mercadopago", topic ?? "payment", body);
-    await markPaymentStatus(String(paymentId), mpStatus, paidAt);
+  // 2) Intentos de resolución
+  let bookingIdFromMeta = p?.metadata?.bookingId ?? null;
+  let externalRef: string | null = p?.external_reference ?? null;
 
-    if (mpStatus === "approved") {
-        await setBookingPaid(payment.idBooking);
+  // 2.a) Conseguir preference_id real vía Merchant Order (order.id = merchant_order_id)
+  let prefId: string | null = p?.metadata?.preference_id ?? null; // suele venir vacío
+  if (!prefId && p?.order?.id) {
+    const mo = unwrapMP<any>(await new MerchantOrder(mpClient).get({ merchantOrderId: String(p.order.id) }));
+    prefId = mo?.preference_id ?? null;
+    if (!externalRef) externalRef = mo?.external_reference ?? null;
+  }
+
+  // 2.b) Linkear el providerPaymentId en nuestra fila cuando tengamos prefId
+  if (prefId) {
+    await linkProviderPaymentIdByPref(prefId, String(paymentId));
+  }
+
+  // 3) Ubicar el pago interno
+  let paymentRow = null;
+  if (prefId) {
+    paymentRow = await findPaymentByProviderPref(prefId);
+  }
+  if (!paymentRow && bookingIdFromMeta) {
+    paymentRow = await findActivePaymentByBookingId(Number(bookingIdFromMeta));
+  }
+  if (!paymentRow && externalRef?.startsWith("booking:")) {
+    const bId = Number(externalRef.split(":")[1]);
+    if (Number.isFinite(bId)) {
+      paymentRow = await findActivePaymentByBookingId(bId);
     }
+  }
 
-    return { ok: true };
+  if (!paymentRow) {
+    await addPaymentEvent(null as any, "mercadopago", "unmatched", { paymentId, prefId, externalRef, meta: p?.metadata });
+    return { ok: false, info: "Payment interno no encontrado" };
+  }
+
+  // 4) Registrar evento y actualizar estado por ID INTERNO (idempotente)
+  const paidAt = p?.date_approved ? new Date(p.date_approved) : null;
+
+  await addPaymentEvent(paymentRow.idPayment, "mercadopago", topic ?? "payment", p);
+  await markPaymentStatusById(paymentRow.idPayment, p.status, paidAt);
+
+  if (p.status === "approved") {
+    await setBookingPaid(paymentRow.idBooking);
+  }
+
+  return { ok: true };
 }
+
