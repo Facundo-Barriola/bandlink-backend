@@ -51,3 +51,8 @@ export async function notifyBookingConfirmed(params: {
   const html = bookingConfirmedHtml(params);
   await sendMail(params.userEmail, "Reserva confirmada", html);
 }
+
+ export async function notifyUser(idUser: number, payload: any) {
+    // TODO: reemplazar con tu bus/WS/email/push
+    console.log(`[NOTIFY] user=${idUser}`, payload);
+  }

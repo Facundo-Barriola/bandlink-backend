@@ -257,7 +257,7 @@ export async function getMusicianProfileByUser(idUser: number): Promise<{ legacy
             e."updatedAt"
           FROM "Directory".fn_get_events_created_by_musician($1, $2, $3, $4, $5, $6) AS e
           `,
-        [idMusician, false, null, null, 100, 0]
+        [idUser, false, null, null, 100, 0]
       )).rows
       : [];
     const toNum = (v: any) =>

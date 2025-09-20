@@ -86,3 +86,8 @@ export async function deactivate(userId: number, idBand: number, idSearch: numbe
 
   return { ok: true as const, search: updated };
 }
+
+export async function searchBandByName(name: string, limit = 8){
+    const foundBands = await BandRepository.getBandsByName(name, limit);
+    return foundBands;
+}

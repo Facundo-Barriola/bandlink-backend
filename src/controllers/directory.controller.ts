@@ -275,7 +275,6 @@ export async function editStudioRoomByOwnerController(req: AuthRequest, res: Res
 
 export async function getStudiosByNameController(req: Request, res: Response) {
  const rawQ = req.query.q;
- console.log(rawQ);
   const q = String(Array.isArray(req.query.q) ? req.query.q[0] ?? "" : req.query.q ?? "").trim();
   const n = Number(req.query.limit);
   const limit = Number.isFinite(n) ? Math.min(Math.max(n, 1), 50) : 8;

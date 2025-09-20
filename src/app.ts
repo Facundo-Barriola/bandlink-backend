@@ -14,6 +14,10 @@ import { googleCalendarRouter } from "./routes/integrations/googleCalendar.route
 import paymentsRoutes from "./routes/payment.routes.js";
 import bookingReceiptRouter from "./routes/integrations/bookings.receipt.routes.js"
 import { errorHandler } from "./middlewares/errorHandler.js";
+import eventsRouter from "./routes/events.routes.js";
+import presenceRouter from "./routes/presence.routes.js";
+import discoverRoutes from "./routes/discover.routes.js";
+import feedbackRoutes from "./routes/feedback.routes.js";
 
 const app = express();
 app.use("/payments/webhook", express.raw({ type: "*/*" }));
@@ -40,6 +44,10 @@ app.use("/integrations/google-calendar", googleCalendarRouter);
 app.use("/booking", bookingRoutes);
 app.use("/payments", paymentsRoutes);
 app.use("/receipts", bookingReceiptRouter);
+app.use("/events", eventsRouter);
+app.use("/discover", discoverRoutes);
+app.use("/feedback", feedbackRoutes);
+app.use(presenceRouter);
 
 
 app.use(errorHandler);

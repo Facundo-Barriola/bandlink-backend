@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import {pool} from "../config/database.js";
-import { BandService, publish, listByBand, deactivate } from "../services/band.service.js";
+import { BandService, publish, listByBand, deactivate,
+  searchBandByName
+ } from "../services/band.service.js";
 
 export async function createBandController(req: Request, res: Response) {
   try {
@@ -154,4 +156,18 @@ export async function deactivateSearchController(req: Request, res: Response) {
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message ?? "Error del servidor" });
   }
+}
+
+export async function searchBandByNameController(req: Request, res: Response){
+   const rawQ = req.query.q;
+    const q = String(Array.isArray(req.query.q) ? req.query.q[0] ?? "" : req.query.q ?? "").trim();
+    const n = Number(req.query.limit);
+    const limit = Number.isFinite(n) ? Math.min(Math.max(n, 1), 50) : 8;
+    try {
+      const items = await searchBandByName(q, limit);
+      return res.json({ ok: true, data: { items, q, limit } });
+    } catch (e) {
+      console.error("searchStudiosByNameController()", e);
+      return res.status(500).json({ ok: false, error: "Error del servidor" });
+    }
 }

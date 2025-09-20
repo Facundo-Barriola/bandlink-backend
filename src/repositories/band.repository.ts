@@ -6,30 +6,30 @@ export type BandMemberInput = {
   idMusician: number;
   roleInBand?: string | null;
   isAdmin?: boolean;
-  joinedAt?: string | null;   
-  leftAt?: string | null;     
+  joinedAt?: string | null;
+  leftAt?: string | null;
 };
 
 export type CreateBandInput = {
   name: string;
   description?: string | null;
-  creatorMusicianId?: number|null;
-  genres?: BandGenreInput[];          
-  members?: BandMemberInput[];        
+  creatorMusicianId?: number | null;
+  genres?: BandGenreInput[];
+  members?: BandMemberInput[];
 };
 
 export type UpdateBandInput = {
   idBand: number;
-  name?: string | null;               
-  description?: string | null;        
-  genres?: BandGenreInput[] | null;   
-  members?: BandMemberInput[] | null; 
+  name?: string | null;
+  description?: string | null;
+  genres?: BandGenreInput[] | null;
+  members?: BandMemberInput[] | null;
 };
 
 export type CreateBandResult = {
   ok: boolean;
   idBand: number;
-  created_at: string; 
+  created_at: string;
 };
 
 export type UpdateBandResult = {
@@ -40,10 +40,10 @@ export type UpdateBandResult = {
 
 export type DeleteBandResult = {
   ok: boolean;
-  deleted_band: number; 
+  deleted_band: number;
 };
 
-export type GetBandResult = any; 
+export type GetBandResult = any;
 
 export type BandSearchInsert = {
   idBand: number;
@@ -56,6 +56,8 @@ export type BandSearchInsert = {
   latitude?: number | null;
   longitude?: number | null;
 };
+
+export type BandHit = { idBand: number; idUserProfile: number | null; name: string };
 
 export async function getMusicianIdByUserId(idUser: number): Promise<number | null> {
   const q = `
@@ -121,6 +123,32 @@ export async function deactivateSearch(idSearch: number, idBand: number) {
 
 export class BandRepository {
 
+  static async getBandsByName(name: string, limit = 8) {
+    const SQL_SEARCH_BANDS = `
+       SELECT
+        b."idBand",
+        b."name",
+        admin1."idUser" AS "idUserAdmin"
+      FROM "Directory"."Band" AS b
+      LEFT JOIN LATERAL (
+        SELECT up."idUser"
+        FROM "Directory"."BandMember" bm
+        JOIN "Directory"."Musician"   m  ON m."idMusician"     = bm."idMusician"
+        JOIN "Directory"."UserProfile" up ON up."idUserProfile" = m."idUserProfile"
+        WHERE bm."idBand"  = b."idBand"
+          AND bm."isAdmin" = TRUE
+        LIMIT 1
+      ) AS admin1 ON TRUE
+      WHERE b."name" ILIKE $1
+      ORDER BY b."name" ASC
+      LIMIT $2;
+      `;
+    const { rows } = await pool.query(SQL_SEARCH_BANDS, [name, limit]);
+      console.log(rows);
+
+    return rows as BandHit[];
+  }
+
   static async createBand(input: CreateBandInput): Promise<CreateBandResult> {
     const sql = `
       SELECT ok, "idBand", created_at
@@ -141,9 +169,9 @@ export class BandRepository {
     } catch (err: any) {
 
       if (err.code === "23505") {
-        err.httpStatus = 409; 
+        err.httpStatus = 409;
       } else if (err.code === "23503") {
-        err.httpStatus = 400; 
+        err.httpStatus = 400;
       }
       throw err;
     }
@@ -175,11 +203,11 @@ export class BandRepository {
       return rows[0] as UpdateBandResult;
     } catch (err: any) {
       if (err.code === "23505") {
-        err.httpStatus = 409; 
+        err.httpStatus = 409;
       } else if (err.code === "02000") {
-        err.httpStatus = 404; 
+        err.httpStatus = 404;
       } else if (err.code === "23503") {
-        err.httpStatus = 400; 
+        err.httpStatus = 400;
       }
       throw err;
     }
@@ -222,17 +250,32 @@ export class BandRepository {
     }
   }
 
-  static async getBandSearches(idBand: number){
+  static async getBandSearches(idBand: number) {
     const sql = `SELECT "idSearch", "idBand", title, description, "minSkillLevel" FROM "Directory"."BandMusicianSearch"
     WHERE idBand = $1 `;
-    const {rows} = await pool.query(sql, [idBand]);
-      if (!rows.length ) {
-        const e = new Error("Busquedas no encontradas");
-        (e as any).httpStatus = 404;
-        throw e;
-      }
-      return rows;
+    const { rows } = await pool.query(sql, [idBand]);
+    if (!rows.length) {
+      const e = new Error("Busquedas no encontradas");
+      (e as any).httpStatus = 404;
+      throw e;
+    }
+    return rows;
   }
 }
+
+ export async function getAdminUserId(idBand: number): Promise<number | null> {
+    const sql = `
+      SELECT up."idUser" AS "idUserAdmin"
+      FROM "Directory"."BandMember" bm
+      JOIN "Directory"."Musician"    m  ON m."idMusician" = bm."idMusician"
+      JOIN "Directory"."UserProfile" up ON up."idUserProfile" = m."idUserProfile"
+      WHERE bm."idBand"  = $1
+        AND bm."isAdmin" = TRUE
+      ORDER BY bm."joinedAt" ASC NULLS LAST
+      LIMIT 1;
+    `;
+    const { rows } = await pool.query(sql, [idBand]);
+    return rows[0]?.idUserAdmin ?? null;
+  }
 
 
