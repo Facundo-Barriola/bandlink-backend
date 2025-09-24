@@ -310,3 +310,21 @@ export async function updateScheduleAndMaybeTotal(
     );
     return rows[0] ?? null;
 }
+
+export async function getStudioOpeningHoursAndTZByRoom(idRoom: number): Promise<{ openingHours: any | null; timezone: string | null }> {
+  const { rows } = await pool.query(
+    `
+    SELECT s."openingHours", s."timezone"
+    FROM "Directory"."Studio" s
+    JOIN "Directory"."StudioRoom" r ON r."idStudio" = s."idStudio"
+    WHERE r."idRoom" = $1
+    LIMIT 1
+    `,
+    [idRoom]
+  );
+  const r = rows[0];
+  return {
+    openingHours: r?.openingHours ?? null,
+    timezone: (r?.timezone && String(r.timezone).trim()) || null,
+  };
+}

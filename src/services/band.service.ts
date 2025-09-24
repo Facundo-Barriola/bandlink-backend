@@ -11,6 +11,7 @@ import {
   insertBandSearch,
   listBandSearches,
   deactivateSearch, 
+  getAllBandsByAdminId
 } from "../repositories/band.repository.js";
   export type PublishSearchDTO = {
   title: string;
@@ -90,4 +91,9 @@ export async function deactivate(userId: number, idBand: number, idSearch: numbe
 export async function searchBandByName(name: string, limit = 8){
     const foundBands = await BandRepository.getBandsByName(name, limit);
     return foundBands;
+}
+
+export async function getAllBandsFromAdmin(idUser: number){
+  const bands = await getAllBandsByAdminId(idUser);
+  return bands;
 }

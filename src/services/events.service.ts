@@ -7,6 +7,8 @@ import {   listEvents,
   upsertBandInvite,
   getMyEventsList,
   getEventsByName, EventHit ,
+  updateLocation,
+  getAttendingEventIdsByUser,
 type UpdateEventDTO,} from "../repositories/events.repository.js";
 import { AddressService } from "./address.service.js";
 import { pool } from "../config/database.js";
@@ -166,4 +168,27 @@ export async function getMyCreatedEvents(idUser: number, limit = 50, offset = 0)
 
 export async function searchEventsByName(name: string, limit = 8): Promise<EventHit[]> {
   return await getEventsByName(name, limit);
+}
+
+export async function updateEventLocationService(
+  idEvent: number,
+  latitude: number,
+  longitude: number
+) {
+  return await updateLocation(idEvent, latitude, longitude);
+}
+
+export async function getMyAttendingEventsService(idUser: number) {
+  if (!Number.isFinite(idUser)) return [];
+
+  const ids = await getAttendingEventIdsByUser(idUser);
+  if (ids.length === 0) return [];
+
+  const events = await Promise.all(ids.map(id => getById(id).catch(() => null)));
+
+  const items = events
+    .filter((e): e is NonNullable<typeof e> => !!e)
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+
+  return items;
 }

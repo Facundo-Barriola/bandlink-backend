@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import {pool} from "../config/database.js";
 import { BandService, publish, listByBand, deactivate,
-  searchBandByName
+  searchBandByName, getAllBandsFromAdmin
  } from "../services/band.service.js";
 
 export async function createBandController(req: Request, res: Response) {
@@ -170,4 +170,28 @@ export async function searchBandByNameController(req: Request, res: Response){
       console.error("searchStudiosByNameController()", e);
       return res.status(500).json({ ok: false, error: "Error del servidor" });
     }
+}
+
+type AdminBand = { idBand: number; name: string };
+
+export async function getAdminBandsController(req: Request, res: Response) {
+  try {
+    const raw = req.params.idUser;
+    const idUser = Number(raw);
+    if (!Number.isFinite(idUser)) {
+      return res.status(400).json({ ok: false, error: "invalid_idUser" });
+    }
+
+    const authIdUser = (req as any)?.user?.idUser as number | undefined;
+    const role = (req as any)?.user?.role as string | undefined;
+    if (authIdUser !== idUser && role !== "admin") {
+      return res.status(403).json({ ok: false, error: "forbidden" });
+    }
+
+    const bands = (await getAllBandsFromAdmin(idUser)) as AdminBand[];
+    return res.json({ ok: true, data: bands });
+  } catch (err: any) {
+    console.error("[getAdminBandsController] error:", err);
+    return res.status(500).json({ ok: false, error: "get_admin_bands_failed" });
+  }
 }

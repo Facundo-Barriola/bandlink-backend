@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 import { createEventController, listEventsController, getEventController,
     updateEventController, deleteEventController, createEventInvitesController, listMyEventsController,
-    searchEventByNameController  
+    searchEventByNameController, updateEventLocationController, getMyAttendingEventsController  
  } from "../controllers/events.controller.js"
 
 import {
@@ -18,17 +18,19 @@ router.use(requireAuth);
 router.get("/", listEventsController);
 router.get("/myEvents", listMyEventsController);
 router.get("/search", searchEventByNameController);
+router.get("/attending", requireAuth, getMyAttendingEventsController);
 
 router.get("/:idEvent", getEventController);   
 router.post("/", createEventController);
 router.put("/:idEvent", updateEventController);
 router.delete("/:idEvent", deleteEventController);
 router.post("/:idEvent/invites", createEventInvitesController);
+router.put("/:idEvent/location", requireAuth, updateEventLocationController);
 
 
-router.post("/:idEvent/attendees", attendEventController);         // agendar / unirse (usuario)
-router.delete("/:idEvent/attendees", unAttendEventController);     // cancelar agenda (usuario)
+router.post("/:idEvent/attendees", attendEventController);         
+router.delete("/:idEvent/attendees", unAttendEventController);     
 
-router.post("/:idEvent/bands/join", bandJoinEventController);      // unirse como banda (solo admin)
+router.post("/:idEvent/bands/join", bandJoinEventController);     
 router.post("/:idEvent/bands/:idBand/confirm", bandConfirmAttendanceController);
 export default router;

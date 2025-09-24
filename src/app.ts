@@ -18,6 +18,7 @@ import eventsRouter from "./routes/events.routes.js";
 import presenceRouter from "./routes/presence.routes.js";
 import discoverRoutes from "./routes/discover.routes.js";
 import feedbackRoutes from "./routes/feedback.routes.js";
+import pushRoutes from "./routes/push.routes.js";
 
 const app = express();
 app.use("/payments/webhook", express.raw({ type: "*/*" }));
@@ -34,6 +35,7 @@ app.use((req, _res, next) => {
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
 app.use("/auth", authRoutes);
+app.use("/push",pushRoutes);
 app.use("/address", addressRoutes);
 app.use("/directory", directoryRoutes);
 app.use("/account", accountRoutes);

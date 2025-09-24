@@ -144,7 +144,7 @@ export class BandRepository {
       LIMIT $2;
       `;
     const { rows } = await pool.query(SQL_SEARCH_BANDS, [name, limit]);
-      console.log(rows);
+    console.log(rows);
 
     return rows as BandHit[];
   }
@@ -263,8 +263,8 @@ export class BandRepository {
   }
 }
 
- export async function getAdminUserId(idBand: number): Promise<number | null> {
-    const sql = `
+export async function getAdminUserId(idBand: number): Promise<number | null> {
+  const sql = `
       SELECT up."idUser" AS "idUserAdmin"
       FROM "Directory"."BandMember" bm
       JOIN "Directory"."Musician"    m  ON m."idMusician" = bm."idMusician"
@@ -274,8 +274,20 @@ export class BandRepository {
       ORDER BY bm."joinedAt" ASC NULLS LAST
       LIMIT 1;
     `;
-    const { rows } = await pool.query(sql, [idBand]);
-    return rows[0]?.idUserAdmin ?? null;
-  }
+  const { rows } = await pool.query(sql, [idBand]);
+  return rows[0]?.idUserAdmin ?? null;
+}
 
-
+export async function getAllBandsByAdminId(idUser: number) {
+  const sql = `
+    SELECT b."idBand", b."name"
+    FROM "Directory"."Band" AS b
+    JOIN "Directory"."BandMember" AS bm ON bm."idBand" = b."idBand"
+    JOIN "Directory"."Musician" AS m ON m."idMusician" = bm."idMusician"
+    JOIN "Directory"."UserProfile" AS up ON up."idUserProfile" = m."idUserProfile"
+    WHERE bm."isAdmin" = true AND up."idUser" = $1
+    ORDER BY b."name";
+  `;
+  const { rows } = await pool.query(sql, [Number(idUser)]);
+  return rows;
+}

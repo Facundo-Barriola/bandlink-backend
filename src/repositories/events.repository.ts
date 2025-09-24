@@ -207,3 +207,26 @@ export async function getEventsByName(name: string, limit = 8): Promise<EventHit
   const { rows } = await pool.query<EventHit>(sql, [name, limit]);
   return rows;
 }
+
+export async function updateLocation(idEvent: number, latitude: number, longitude: number) {
+  const sql = `
+    UPDATE "Directory"."Event"
+    SET "latitude" = $1,
+        "longitude" = $2,
+        "updatedAt" = NOW()
+    WHERE "idEvent" = $3
+    RETURNING "idEvent", "latitude", "longitude";
+  `;
+  const { rows } = await pool.query(sql, [latitude, longitude, idEvent]);
+  return rows[0] ?? null;
+}
+
+export async function getAttendingEventIdsByUser(idUser: number) {
+  const sql = `
+    SELECT DISTINCT ea."idEvent"
+    FROM "Directory"."EventAttendee" ea
+    WHERE ea."idUser" = $1
+  `;
+  const { rows } = await pool.query(sql, [idUser]);
+  return rows.map(r => Number(r.idEvent)).filter(n => Number.isFinite(n));
+}

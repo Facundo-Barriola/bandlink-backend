@@ -1,7 +1,9 @@
 import type { Request, Response } from "express";
 import type { AuthRequest } from "../types/authRequest.js";
 import { newEvent, listEventsSvc, getEventSvc, deleteEventSvc, updateEventSvc, createEventInvites, 
-  getMyCreatedEvents, searchEventsByName } from "../services/events.service.js";
+  getMyCreatedEvents, searchEventsByName,
+  getMyAttendingEventsService,
+updateEventLocationService } from "../services/events.service.js";
 
 type InviteBand = { kind: "band"; idBand: number; idUserAdmin?: number | null; label?: string };
 type InviteMusician = { kind: "musician"; idMusician: number; idUser: number; label?: string };
@@ -175,5 +177,46 @@ export async function searchEventByNameController(req: Request, res: Response) {
   } catch (e: any) {
     console.error("searchEventByNameController()", e);
     return res.status(500).json({ ok: false, error: "Error del servidor" });
+  }
+}
+
+export async function updateEventLocationController(req: Request, res: Response) {
+  try {
+    const idEvent = Number(req.params.idEvent);
+    const { latitude, longitude } = req.body ?? {};
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+
+    if (!Number.isFinite(idEvent) || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return res.status(400).json({ ok: false, error: "invalid_params" });
+    }
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return res.status(400).json({ ok: false, error: "invalid_coordinates" });
+    }
+
+    const updated = await updateEventLocationService(idEvent, lat, lon);
+    if (!updated) {
+      return res.status(404).json({ ok: false, error: "event_not_found" });
+    }
+
+    return res.json({ ok: true, data: updated }); // { idEvent, latitude, longitude }
+  } catch (e) {
+    console.error("[updateEventLocationController]", e);
+    return res.status(500).json({ ok: false, error: "internal_error" });
+  }
+}
+
+export async function getMyAttendingEventsController(req: Request, res: Response) {
+  try {
+    const idUser = Number((req as any)?.user?.idUser);
+    if (!Number.isFinite(idUser)) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+
+    const items = await getMyAttendingEventsService(idUser);
+    return res.json({ ok: true, data: { items } });
+  } catch (e) {
+    console.error("[getMyAttendingEventsController]", e);
+    return res.status(500).json({ ok: false, error: "internal_error" });
   }
 }

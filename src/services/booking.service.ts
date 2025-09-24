@@ -1,10 +1,13 @@
-import { createRoomBooking, getBookingsForMusician, getBookingsForStudio, getBookingForEmail, refundPaymentByBooking, getPaymentByBooking
-  , getForUpdateByOwner, hasOverlapInRoom, updateScheduleAndMaybeTotal
- } from "../repositories/booking.repository.js";
-import {getPaidStatusForBooking} from "../repositories/payment.repository.js"
-import {mpRefund} from "../services/payments/providers/mp.provider.js";
+import {
+  createRoomBooking, getBookingsForMusician, getBookingsForStudio, getBookingForEmail, refundPaymentByBooking, getPaymentByBooking
+  , getForUpdateByOwner, hasOverlapInRoom, updateScheduleAndMaybeTotal, getStudioOpeningHoursAndTZByRoom
+} from "../repositories/booking.repository.js";
+import { getPaidStatusForBooking } from "../repositories/payment.repository.js"
+import { mpRefund } from "../services/payments/providers/mp.provider.js";
 import { stripeRefund } from "./payments/providers/stripe.provider.js";
 import { pool } from "../config/database.js";
+import { normalizeOpeningHours, isWithinOpeningHoursZoned } from "../utils/openingHours.js";
+import { formatInTimeZone } from "date-fns-tz";
 
 export type CreateRoomBookingDTO = {
   idRoom: number;
@@ -22,7 +25,7 @@ class ServiceError extends Error {
 function validate(dto: CreateRoomBookingDTO) {
   if (!Number.isFinite(dto.idRoom)) throw new ServiceError(400, "idRoom inválido");
   const s = new Date(dto.startsAt), e = new Date(dto.endsAt);
-  if (isNaN(s.getTime()) || isNaN(e.getTime())) throw new ServiceError(400, "Fecha/hora inválida");
+  if (isNaN(+s) || isNaN(+e)) throw new ServiceError(400, "Fecha/hora inválida");
   if (e <= s) throw new ServiceError(400, "El fin debe ser posterior al inicio");
   const minMs = 30 * 60_000;
   if (e.getTime() - s.getTime() < minMs) throw new ServiceError(400, "Duración mínima: 30 minutos");
@@ -32,14 +35,40 @@ export async function createRoomBookingService(idUser: number, dto: CreateRoomBo
   if (!Number.isFinite(idUser)) throw new ServiceError(401, "No autorizado");
   validate(dto);
 
-  const r = await createRoomBooking(idUser, dto.idRoom, dto.startsAt, dto.endsAt, dto.notes ?? null, dto.contactNumber ?? null);
+  const { openingHours, timezone } = await getStudioOpeningHoursAndTZByRoom(dto.idRoom);
+  const tz = timezone || process.env.DEFAULT_TZ || "America/Argentina/Buenos_Aires";
+
+  if (openingHours) {
+    const norm = normalizeOpeningHours(openingHours as any);
+
+    // DEBUG: te muestra cómo lo está evaluando
+    console.log("[opening-hours-check]", {
+      tz,
+      localStart: formatInTimeZone(dto.startsAt, tz, "yyyy-MM-dd HH:mm"),
+      localEnd:   formatInTimeZone(dto.endsAt,   tz, "yyyy-MM-dd HH:mm"),
+      normForDay: norm, // si molesta mucho, logueá solo el día en cuestión
+    });
+
+    const ok = isWithinOpeningHoursZoned(dto.startsAt, dto.endsAt, norm, tz);
+    if (!ok) throw new ServiceError(400, "outside_opening_hours");
+  }
+
+  const r = await createRoomBooking(
+    idUser,
+    dto.idRoom,
+    dto.startsAt,
+    dto.endsAt,
+    dto.notes ?? null,
+    dto.contactNumber ?? null
+  );
 
   if (!r.ok) {
-    if (r.info === "overlap") throw new ServiceError(409, "Horario no disponible");
-    if (r.info === "invalid_range") throw new ServiceError(400, "Rango inválido");
+    if (r.info === "overlap")        throw new ServiceError(409, "Horario no disponible");
+    if (r.info === "invalid_range")  throw new ServiceError(400, "Rango inválido");
+    if (r.info === "outside_opening_hours") throw new ServiceError(400, "outside_opening_hours");
     throw new ServiceError(500, "No se pudo crear la reserva");
   }
-  return r; // { ok, info, idBooking, confirmationCode }
+  return r;
 }
 
 export async function listMusicianBookings(idUser: number) {
@@ -54,11 +83,11 @@ export async function getBookingForEmailById(bookingId: number) {
   return await getBookingForEmail(bookingId);
 }
 
-export async function cancelBookingByStudio(bookingId: number,  refundedStatus: string, refundedAmount: number){
-    const payment = await getPaymentByBooking(bookingId);
+export async function cancelBookingByStudio(bookingId: number, refundedStatus: string, refundedAmount: number) {
+  const payment = await getPaymentByBooking(bookingId);
   if (!payment) return null;
 
-    if (payment.provider === "mp") {
+  if (payment.provider === "mp") {
     await mpRefund(payment.providerPaymentId, process.env.MP_ACCESS_TOKEN!, refundedAmount);
   } else if (payment.provider === "stripe") {
     // ojo: en Stripe solés guardar payment_intent, no el charge
@@ -98,6 +127,13 @@ export async function rescheduleByMusicianService(
     if (pay.isPaid) {
       await client.query("ROLLBACK");
       return { ok: false as const, code: "booking_already_paid" };
+    }
+
+    const openingRaw = await getStudioOpeningHoursAndTZByRoom(booking.idRoom);
+    if (openingRaw) {
+      const norm = normalizeOpeningHours(openingRaw as any);
+      const ok = isWithinOpeningHoursZoned(newStartsAtIso, newEndsAtIso, norm, process.env.DEFAULT_TZ || "America/Argentina/Buenos_Aires");
+      if (!ok) { await client.query("ROLLBACK"); return { ok: false as const, code: "outside_opening_hours" }; }
     }
 
     // evitar solapamientos en el mismo room
