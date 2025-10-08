@@ -1,6 +1,6 @@
 import {createBandController, getBandController, updateBandController, deleteBandController, createSearchController, 
     listSearchByBandController, deactivateSearchController, searchBandByNameController,
-getAdminBandsController} from "../controllers/band.controller.js";
+getAdminBandsController, getMembershipController, unfollowBandController, followBandController} from "../controllers/band.controller.js";
 import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 
@@ -15,5 +15,9 @@ router.delete("/:id", requireAuth, deleteBandController);
 router.post("/:id/searches", requireAuth, createSearchController);
 router.get("/:id/searches", requireAuth, listSearchByBandController);
 router.post("/:id/searches/:idSearch/deactivate", requireAuth, deactivateSearchController);
+
+router.get("/:id/membership", requireAuth, getMembershipController);
+router.post("/:id/follow", requireAuth, followBandController);
+router.delete("/:id/follow", requireAuth, unfollowBandController);
 
 export default router;

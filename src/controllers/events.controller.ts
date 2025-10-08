@@ -50,6 +50,8 @@ export async function createEventController(req: AuthRequest, res: Response) {
     if (typeof address.streetNum === "string") address.streetNum = Number(address.streetNum);
     if (typeof req.body.capacityMax === "string") req.body.capacityMax = Number(req.body.capacityMax);
     if (typeof req.body.idStudio === "string") req.body.idStudio = Number(req.body.idStudio);
+    if (address.lat != null && typeof address.lat === "string") address.lat = Number(address.lat);
+    if (address.lon != null && typeof address.lon === "string") address.lon = Number(address.lon);
 
     const created = await newEvent(idUser, req.body);
     res.status(201).json({ ok: true, data: created });

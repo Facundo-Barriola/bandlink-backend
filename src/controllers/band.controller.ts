@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import {pool} from "../config/database.js";
 import { BandService, publish, listByBand, deactivate,
-  searchBandByName, getAllBandsFromAdmin
+  searchBandByName, getAllBandsFromAdmin, membershipByUser,
+  followBandByUser, unfollowBandByUser
  } from "../services/band.service.js";
 
 export async function createBandController(req: Request, res: Response) {
@@ -193,5 +194,54 @@ export async function getAdminBandsController(req: Request, res: Response) {
   } catch (err: any) {
     console.error("[getAdminBandsController] error:", err);
     return res.status(500).json({ ok: false, error: "get_admin_bands_failed" });
+  }
+}
+export async function getMembershipController(req: Request, res: Response) {
+  try {
+    const user = (req as any).user;
+    const idBand = Number(req.params.id);
+    if (!user?.idUser) return res.status(401).json({ ok: false, error: "No autenticado" });
+    if (!Number.isFinite(idBand)) return res.status(400).json({ ok: false, error: "idBand inválido" });
+
+    const { isMember, isFollowing } = await membershipByUser(user.idUser, idBand);
+
+    return res.json({ isMember, isFollowing });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err?.message ?? "Error del servidor" });
+  }
+}
+
+export async function followBandController(req: Request, res: Response) {
+  try {
+    const user = (req as any).user;
+    const idBand = Number(req.params.id);
+    if (!user?.idUser) return res.status(401).json({ ok: false, error: "No autenticado" });
+    if (!Number.isFinite(idBand)) return res.status(400).json({ ok: false, error: "idBand inválido" });
+
+    const r = await followBandByUser(user.idUser, idBand);
+    if (!r.ok) {
+      const map: any = { is_member: 409 };
+      return res.status(map[r.info] ?? 400).json({ ok: false, error: r.info });
+    }
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err?.message ?? "Error del servidor" });
+  }
+}
+
+export async function unfollowBandController(req: Request, res: Response) {
+  try {
+    const user = (req as any).user;
+    const idBand = Number(req.params.id);
+    if (!user?.idUser) return res.status(401).json({ ok: false, error: "No autenticado" });
+    if (!Number.isFinite(idBand)) return res.status(400).json({ ok: false, error: "idBand inválido" });
+
+    await unfollowBandByUser(user.idUser, idBand);
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error(err);
+    return res.status(500).json({ ok: false, error: err?.message ?? "Error del servidor" });
   }
 }

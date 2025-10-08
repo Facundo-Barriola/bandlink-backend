@@ -34,6 +34,16 @@ export async function getMusicianIdByUserId(idUser: number): Promise<number | nu
   return rows[0]?.idMusician ?? null;
 }
 
+export async function getUserByMusicianId(idMusician: number): Promise<number | null>{
+  const q = `SELECT up."idUser" 
+  FROM "Directory"."UserProfile" AS up
+  INNER JOIN "Directory"."Musician" AS m
+  ON up."idUserProfile" = m."idUserProfile"
+  WHERE m."idMusician" = $1`
+  const { rows } = await pool.query<{idUser: number | null}>(q, [idMusician]);
+  return rows[0]?.idUser ?? null;
+}
+
 export async function getInvitesForMusician(
   idMusician: number,
   status?: string | null
@@ -85,7 +95,7 @@ export async function acceptBandInvite(
   `;
   const { rows } = await pool.query(sql, [targetMusicianId, idBandInvite]);
   const r = rows[0] || {};
-  return { ok: !!r.ok, idBand: r.idBand ?? null, status: r.status ?? null, info: r.info ?? null };
+  return { ok: !!r.ok, idBand: r.out_idBand ?? null, status: r.status ?? null, info: r.info ?? null };
 }
 
 export async function rejectBandInvite(

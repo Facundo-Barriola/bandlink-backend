@@ -10,10 +10,17 @@ import {
   isBandAdmin,
   insertBandSearch,
   listBandSearches,
-  deactivateSearch, 
-  getAllBandsByAdminId
+  deactivateSearch,
+  getAllBandsByAdminId,
+  isBandMember,
+  isFollowingByUser,
+  followByUser,
+  insertNotificationsForUsers,
+  getBandName,
+  getBandAdminUserIds,
+  unfollowByUser,
 } from "../repositories/band.repository.js";
-  export type PublishSearchDTO = {
+export type PublishSearchDTO = {
   title: string;
   description?: string | null;
   idInstrument?: number | null;
@@ -88,12 +95,59 @@ export async function deactivate(userId: number, idBand: number, idSearch: numbe
   return { ok: true as const, search: updated };
 }
 
-export async function searchBandByName(name: string, limit = 8){
-    const foundBands = await BandRepository.getBandsByName(name, limit);
-    return foundBands;
+export async function searchBandByName(name: string, limit = 8) {
+  const foundBands = await BandRepository.getBandsByName(name, limit);
+  return foundBands;
 }
 
-export async function getAllBandsFromAdmin(idUser: number){
+export async function getAllBandsFromAdmin(idUser: number) {
   const bands = await getAllBandsByAdminId(idUser);
   return bands;
+}
+
+export async function membershipByUser(idUser: number, idBand: number) {
+  const idMusician = await getMusicianIdByUserId(idUser);
+  const isMember = idMusician ? await isBandMember(idBand, idMusician) : false;
+  const isFollowing = await isFollowingByUser(idBand, idUser);
+  return { isMember, isFollowing };
+}
+
+export async function followBandByUser(idUser: number, idBand: number) {
+  const idMusician = await getMusicianIdByUserId(idUser);
+  const member = idMusician ? await isBandMember(idBand, idMusician) : false;
+  if (member) return { ok: false as const, info: "is_member" as const };
+
+  // Insertar follow (idempotente) y saber si fue nuevo
+  const inserted = await followByUser(idBand, idUser);
+
+  if (inserted) {
+    await notifyBandAdminsOfNewFollower(idBand, idUser);
+  }
+
+  return { ok: true as const };
+}
+
+export async function unfollowBandByUser(idUser: number, idBand: number) {
+  await unfollowByUser(idBand, idUser);
+  return { ok: true as const };
+}
+
+export async function notifyBandAdminsOfNewFollower(idBand: number, followerIdUser: number) {
+  const adminUserIds = await getBandAdminUserIds(idBand);
+  if (!adminUserIds.length) return;
+
+
+  const bandName = await getBandName(idBand);
+  const title = "👥 Nuevo seguidor de la banda";
+  const body = bandName
+    ? `Tu banda "${bandName}" tiene un nuevo seguidor.`
+    : `Tu banda tiene un nuevo seguidor.`;
+  await insertNotificationsForUsers(
+    adminUserIds,
+    "band_new_follower",
+    title,
+    body,
+    { url: `/bands/${idBand}`, idBand, followerIdUser }, 
+    "push"
+  );
 }

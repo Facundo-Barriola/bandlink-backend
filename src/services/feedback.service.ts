@@ -12,6 +12,7 @@ import {
   ReportRow,
   RatingSummary,
 } from "../repositories/feedback.repository.js";
+import { notifyUser } from "./notification.service.js";
 
 /* -------------------- REVIEWS -------------------- */
 
@@ -29,12 +30,21 @@ export async function upsertReviewSvc(params: {
   if (!Number.isFinite(rating) || rating < 1 || rating > 5)
     throw new Error("invalid_rating");
 
-  return upsertReviewRepo(
+  const row: ReviewRow = await upsertReviewRepo(
     targetIdUser,
     authorIdUser,
-    Math.round(rating),
+    rating,
     params.comment ?? null
   );
+
+  await notifyUser(targetIdUser, {
+    type: "user_review_received",
+    title: "Nueva reseña",
+    body: "Has recibido una nueva reseña",
+    data: { idUser: targetIdUser },
+    channel: "push",
+  }).catch(console.error);
+  return row;
 }
 
 export async function listReviewsSvc(

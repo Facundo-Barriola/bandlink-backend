@@ -105,3 +105,26 @@ export async function sendTest(req: AuthRequest, res: Response) {
   });
   res.json({ ok: true, data: r });
 }
+
+export async function notifyFollowersOfBand(idBand: number, type: string, title: string, body: string, data: any) {
+  const { rows } = await pool.query(`
+    select bf."idUser"
+    from "Directory"."BandFollow" bf
+    where bf."idBand" = $1
+  `, [idBand]);
+
+  if (!rows.length) return;
+  const values = rows.map((r, i) =>
+    `($${i*5+1}, $${i*5+2}, $${i*5+3}, $${i*5+4}::jsonb, now())`
+  ).join(",");
+
+  const params:any[] = [];
+  rows.forEach((r:any) => {
+    params.push(r.idUser, type, title, body, JSON.stringify(data ?? {}));
+  });
+
+  await pool.query(`
+    insert into "Notification"."Notification"("idUser", type, title, body, data, createdat)
+    values ${values}
+  `, params);
+}

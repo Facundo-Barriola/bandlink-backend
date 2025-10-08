@@ -1,18 +1,19 @@
 import { mercadopago, mpClient } from "../config/mercadopago.js";
 import { Preference, Payment, MerchantOrder } from "mercadopago";
 import {
-    getBookingForPayment, upsertActivePayment, markPaymentStatus,
-    addPaymentEvent, setBookingPaid, findPaymentByProviderPref, findActivePaymentByBookingId,
-    linkProviderPaymentIdByPref,     // <-- NUEVO
+  getBookingForPayment, upsertActivePayment, markPaymentStatus,
+  addPaymentEvent, setBookingPaid, findPaymentByProviderPref, findActivePaymentByBookingId,
+  linkProviderPaymentIdByPref,
   markPaymentStatusById
 } from "../repositories/payment.repository.js";
+import { notifyUser, bookingConfirmedHtml } from "./notification.service.js";
 
 function unwrapMP<T extends object>(r: any): T {
-    if (r && typeof r === "object") {
-        if ("body" in r && r.body) return r.body as T;
-        if ("response" in r && r.response) return r.response as T;
-    }
-    return r as T;
+  if (r && typeof r === "object") {
+    if ("body" in r && r.body) return r.body as T;
+    if ("response" in r && r.response) return r.response as T;
+  }
+  return r as T;
 }
 
 async function fetchPaymentWithRetry(id: number, tries = 5, delay = 500) {
@@ -33,80 +34,80 @@ async function fetchPaymentWithRetry(id: number, tries = 5, delay = 500) {
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
 export async function createPaymentForBooking(idBooking: number, idUser: number, payerEmail?: string) {
-    console.log("IdBooking Service:", idBooking, idUser, payerEmail);
-    const b = await getBookingForPayment(idBooking);
-    if (!b) return { ok: false, error: "Reserva inexistente" };
-    if (b.status !== "confirmed" && b.status !== "paid") return { ok: false, error: `Estado inválido: ${b.status}` };
-    if (b.status === "paid") return { ok: true, info: "Ya está paga", alreadyPaid: true };
+  console.log("IdBooking Service:", idBooking, idUser, payerEmail);
+  const b = await getBookingForPayment(idBooking);
+  if (!b) return { ok: false, error: "Reserva inexistente" };
+  if (b.status !== "confirmed" && b.status !== "paid") return { ok: false, error: `Estado inválido: ${b.status}` };
+  if (b.status === "paid") return { ok: true, info: "Ya está paga", alreadyPaid: true };
 
-    const hours = (new Date(b.endsAt).getTime() - new Date(b.startsAt).getTime()) / 3600000;
-    const price = Number(b.totalAmount ?? (Number(b.pricePerHour ?? 0) * hours));
-    const amount = round2(price);
-    console.log("Amount a cobrar:", amount);
-    // Crear preference en MP
-    //const email = "TESTUSER5463626794354640670";
-    console.log(process.env.MP_PUBLIC_URL )
-    const preference = {
-        items: [{
-            title: `Reserva sala #${idBooking}`,
-            quantity: 1,
-            currency_id: "ARS",
-            unit_price: amount
-        }],
-        statement_descriptor: "BandLink",
-        back_urls: {
-            success: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
-            failure: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
-            pending: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
-        },
-        //auto_return: "approved",
-        binary_mode: true,       
-        payer: payerEmail ? { email: payerEmail } : undefined,
-        external_reference: `booking:${idBooking}`,       
-        metadata: { bookingId: idBooking, env: 'dev' },
-        notification_url: (process.env.MP_PUBLIC_URL ?? "http://localhost:4000") + "/payments/webhook"
-    };
+  const hours = (new Date(b.endsAt).getTime() - new Date(b.startsAt).getTime()) / 3600000;
+  const price = Number(b.totalAmount ?? (Number(b.pricePerHour ?? 0) * hours));
+  const amount = round2(price);
+  console.log("Amount a cobrar:", amount);
+  // Crear preference en MP
+  //const email = "TESTUSER5463626794354640670";
+  console.log(process.env.MP_PUBLIC_URL)
+  const preference = {
+    items: [{
+      title: `Reserva sala #${idBooking}`,
+      quantity: 1,
+      currency_id: "ARS",
+      unit_price: amount
+    }],
+    statement_descriptor: "BandLink",
+    back_urls: {
+      success: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
+      failure: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
+      pending: process.env.CLIENT_ORIGIN + `/home/${idUser}`,
+    },
+    //auto_return: "approved",
+    binary_mode: true,
+    payer: payerEmail ? { email: payerEmail } : undefined,
+    external_reference: `booking:${idBooking}`,
+    metadata: { bookingId: idBooking, env: 'dev' },
+    notification_url: (process.env.MP_PUBLIC_URL ?? "http://localhost:4000") + "/payments/webhook"
+  };
 
-    try {
-        const prefRes = await new Preference(mpClient).create({ body: preference as any });
-        const pref = unwrapMP<any>(prefRes);
+  try {
+    const prefRes = await new Preference(mpClient).create({ body: preference as any });
+    const pref = unwrapMP<any>(prefRes);
 
-        // Extrae con tolerancia de llaves (distintos nombres en minores)
-        const prefId: string | undefined = pref.id ?? pref.preference_id;
-        const collectorId: number | undefined =
-            pref.collector_id ?? pref.collector?.id ?? pref.payer?.collector?.id;
-        const sandboxInitPoint: string | undefined =
-            pref.sandbox_init_point ?? pref.sandboxInitPoint;
-        const initPoint: string | undefined =
-            pref.init_point ?? pref.initPoint;
+    // Extrae con tolerancia de llaves (distintos nombres en minores)
+    const prefId: string | undefined = pref.id ?? pref.preference_id;
+    const collectorId: number | undefined =
+      pref.collector_id ?? pref.collector?.id ?? pref.payer?.collector?.id;
+    const sandboxInitPoint: string | undefined =
+      pref.sandbox_init_point ?? pref.sandboxInitPoint;
+    const initPoint: string | undefined =
+      pref.init_point ?? pref.initPoint;
 
-        if (!prefId) {
-            throw new Error("Mercado Pago no devolvió un preferenceId en la respuesta");
-        }
-        const payment = await upsertActivePayment({
-            idBooking,
-            amount,
-            currency: "ARS",
-            provider: "mercadopago",
-            providerPrefId: prefId,          // <- ahora es string
-            payerIdUser: idUser ?? null,     // opcional: si querés permitir null
-            payerEmail: payerEmail ?? null,
-        });
-        console.log("", prefId, payment.idPayment, initPoint)
-
-        return { ok: true, preferenceId: prefId, idPayment: payment.idPayment, initPoint };
-
-    } catch (e: any) {
-        console.error("[MP] Preference.create error", {
-            name: e?.name,
-            message: e?.message,
-            status: e?.status,
-            error: e?.error,
-            cause: e?.cause,
-            requestAuth: e?.request?.headers?.Authorization, // debería ser 'Bearer TEST-...'
-        });
-        throw e;
+    if (!prefId) {
+      throw new Error("Mercado Pago no devolvió un preferenceId en la respuesta");
     }
+    const payment = await upsertActivePayment({
+      idBooking,
+      amount,
+      currency: "ARS",
+      provider: "mercadopago",
+      providerPrefId: prefId,          // <- ahora es string
+      payerIdUser: idUser ?? null,     // opcional: si querés permitir null
+      payerEmail: payerEmail ?? null,
+    });
+    console.log("", prefId, payment.idPayment, initPoint)
+
+    return { ok: true, preferenceId: prefId, idPayment: payment.idPayment, initPoint };
+
+  } catch (e: any) {
+    console.error("[MP] Preference.create error", {
+      name: e?.name,
+      message: e?.message,
+      status: e?.status,
+      error: e?.error,
+      cause: e?.cause,
+      requestAuth: e?.request?.headers?.Authorization, // debería ser 'Bearer TEST-...'
+    });
+    throw e;
+  }
 
 }
 
@@ -122,8 +123,8 @@ export async function handleWebhook(payload: any, headers: Record<string, string
   console.log("[MP][webhook] topic:", topic, "paymentId:", paymentId);
   console.log("[MP][webhook] status:", p.status, "status_detail:", p.status_detail);
   console.log("[MP][webhook] order.id:", p.order?.id,
-              "ext_ref:", p.external_reference,
-              "meta:", p.metadata);
+    "ext_ref:", p.external_reference,
+    "meta:", p.metadata);
 
   // 2) Intentos de resolución
   let bookingIdFromMeta = p?.metadata?.bookingId ?? null;
@@ -146,6 +147,21 @@ export async function handleWebhook(payload: any, headers: Record<string, string
   let paymentRow = null;
   if (prefId) {
     paymentRow = await findPaymentByProviderPref(prefId);
+  }
+  if (p.status === "approved") {
+    await setBookingPaid(paymentRow.idBooking);
+
+    const b = await getBookingForPayment(paymentRow.idBooking);
+    if (b?.idUser) {
+      // Push rápido
+      await notifyUser(b.idUser, {
+        type: "booking_confirmed",
+        title: "✅ Reserva confirmada",
+        body: "Tu pago fue aprobado y la reserva quedó confirmada.",
+        data: { idBooking: paymentRow.idBooking },
+        channel: "push",
+      }).catch(console.error);
+    }
   }
   if (!paymentRow && bookingIdFromMeta) {
     paymentRow = await findActivePaymentByBookingId(Number(bookingIdFromMeta));

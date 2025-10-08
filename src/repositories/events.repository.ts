@@ -11,6 +11,8 @@ export type NewEventDTO = {
 
   startsAtIso: string;
   endsAtIso?: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type EventWithAddress = {
@@ -30,7 +32,6 @@ export type EventWithAddress = {
 };
 
 export type UpdateEventDTO = Partial<NewEventDTO>;
-
 
 export async function listEvents(limit = 20, offset = 0) {
   const { rows } = await pool.query(
@@ -88,8 +89,8 @@ export async function createEventTx(client: PoolClient, idUser: number, payload:
       payload.description ?? null,
       payload.capacityMax ?? null,
       payload.idAddress,           // <- viene del service
-      null,                        // latitude
-      null,                        // longitude
+      payload.latitude, 
+      payload.longitude,
       starts.toISOString().replace("Z", ""),
       ends ? ends.toISOString().replace("Z", "") : null,
     ]

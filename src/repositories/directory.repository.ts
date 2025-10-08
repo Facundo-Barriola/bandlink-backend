@@ -339,6 +339,21 @@ export async function getStudioByName(name: string, limit = 8): Promise<StudioMi
   }
 }
 
+type UserLite = { idUser: number; displayName: string; avatarUrl: string | null };
+export async function getUsersByIds(ids: number[]): Promise<UserLite[]> {
+  if (!ids.length) return [];
+  const sql = `
+    select u."idUser",
+           coalesce(up."displayName", u."email") as "displayName",
+           up."avatarUrl"
+      from "Security"."User" u
+ left join "Directory"."UserProfile" up on up."idUser" = u."idUser"
+     where u."idUser" = any($1::int[])
+  `;
+  const { rows } = await pool.query<UserLite>(sql, [ids]);
+  return rows;
+}
+
 export async function getStudioIdByUserID(idUser: number): Promise<number | null> {
   try{
     const { rows } = await pool.query(`Select s."idStudio"

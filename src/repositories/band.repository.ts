@@ -277,6 +277,19 @@ export async function getAdminUserId(idBand: number): Promise<number | null> {
   const { rows } = await pool.query(sql, [idBand]);
   return rows[0]?.idUserAdmin ?? null;
 }
+export async function getBandAdminUserIds(idBand: number): Promise<number[]> {
+  const sql = `
+    SELECT up."idUser" AS "idUserAdmin"
+    FROM "Directory"."BandMember" bm
+    JOIN "Directory"."Musician"    m  ON m."idMusician" = bm."idMusician"
+    JOIN "Directory"."UserProfile" up ON up."idUserProfile" = m."idUserProfile"
+    WHERE bm."idBand" = $1
+      AND bm."isAdmin" = TRUE
+      AND bm."leftAt" IS NULL
+  `;
+  const { rows } = await pool.query(sql, [idBand]);
+  return rows.map(r => r.idUserAdmin).filter((x: number | null) => typeof x === "number") as number[];
+}
 
 export async function getAllBandsByAdminId(idUser: number) {
   const sql = `
@@ -290,4 +303,78 @@ export async function getAllBandsByAdminId(idUser: number) {
   `;
   const { rows } = await pool.query(sql, [Number(idUser)]);
   return rows;
+}
+
+export async function isBandMember(idBand: number, idMusician: number): Promise<boolean> {
+  const sql = `
+    SELECT 1
+    FROM "Directory"."BandMember"
+    WHERE "idBand" = $1
+      AND "idMusician" = $2
+      AND "leftAt" IS NULL
+    LIMIT 1
+  `;
+  const { rows } = await pool.query(sql, [idBand, idMusician]);
+  return !!rows[0];
+}
+
+export async function isFollowingByUser(idBand: number, idUser: number): Promise<boolean> {
+  const sql = `
+    SELECT 1
+    FROM "Directory"."BandFollow"
+    WHERE "idBand" = $1
+      AND "idUser" = $2
+    LIMIT 1
+  `;
+  const { rows } = await pool.query(sql, [idBand, idUser]);
+  return !!rows[0];
+}
+
+export async function followByUser(idBand: number, idUser: number): Promise<boolean> {
+  const sql = `
+    INSERT INTO "Directory"."BandFollow" ("idBand","idUser")
+    VALUES ($1,$2)
+    ON CONFLICT DO NOTHING
+    RETURNING 1
+  `;
+  const { rows } = await pool.query(sql, [idBand, idUser]);
+  return !!rows[0];
+}
+
+export async function unfollowByUser(idBand: number, idUser: number): Promise<void> {
+  const sql = `
+    DELETE FROM "Directory"."BandFollow"
+    WHERE "idBand" = $1 AND "idUser" = $2
+  `;
+  await pool.query(sql, [idBand, idUser]);
+}
+
+export async function getBandName(idBand: number): Promise<string | null> {
+  const sql = `SELECT "name" FROM "Directory"."Band" WHERE "idBand" = $1`;
+  const { rows } = await pool.query(sql, [idBand]);
+  return rows[0]?.name ?? null;
+}
+
+export async function insertNotificationsForUsers(
+  userIds: number[],
+  type: string,
+  title: string,
+  body: string | null,
+  data?: any,
+  channel = "push"
+): Promise<void> {
+  if (!userIds?.length) return;
+  const sql = `
+    INSERT INTO "Notification"."Notification" ("idUser", "type", "title", "body", "data", "channel", "createdat")
+    SELECT unnest($1::int[]), $2, $3, $4, $5::jsonb, $6, NOW()
+  `;
+   const params = [
+    userIds,
+    type,
+    title,
+    body ?? null,
+    JSON.stringify(data ?? {}),
+    channel,
+  ];
+  await pool.query(sql, params);
 }

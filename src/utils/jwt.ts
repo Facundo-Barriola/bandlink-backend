@@ -33,7 +33,7 @@ export function signRefreshToken(args: {
   rememberMe?: boolean;
 }): string {
   const days = getRefreshWindowDays(args.rememberMe);
-  const expiresInSeconds = days * 24 * 60 * 60; // <-- número, evita el problema de tipos
+  const expiresInSeconds = days * 24 * 60 * 60;
   const payload: RefreshPayload = { sub: args.sub, type: "refresh", jti: args.jti };
 
   return jwt.sign(payload, ENV.JWT_REFRESH_SECRET as Secret, {

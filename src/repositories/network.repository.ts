@@ -157,6 +157,7 @@ export async function listAccepted(userId: number) {
     ORDER BY c."updatedAt" DESC
   `;
   const{ rows } = await pool.query(sql, [userId]);
+  console.log(rows);
   return rows;
 }
 
@@ -174,4 +175,33 @@ export async function listArchived(userId: number) {
   `;
   const{ rows } = await pool.query(sql, [userId]);
   return rows;
+}
+
+export type ConnectionCore = {
+  idConnection: number;
+  idUserA: number;
+  idUserB: number;
+  requestedBy: number;
+};
+
+export async function getConnectionCore(
+  idConnection: number
+): Promise<ConnectionCore | null> {
+  const sql = `
+    SELECT "idConnection","idUserA","idUserB","requestedBy"
+    FROM "Network"."Connection"
+    WHERE "idConnection" = $1
+  `;
+  const { rows } = await pool.query<ConnectionCore>(sql, [idConnection]);
+  return rows[0] ?? null;
+}
+export async function isBlocked(a: number, b: number): Promise<boolean> {
+  const q = `
+    select 1
+      from "Network"."Block"
+     where ("blockerId"=$1 and "blockedId"=$2)
+        or ("blockerId"=$2 and "blockedId"=$1)
+     limit 1`;
+  const { rows } = await pool.query(q, [a, b]);
+  return rows.length > 0;
 }

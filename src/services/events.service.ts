@@ -1,4 +1,5 @@
-import {   listEvents,
+import {
+  listEvents,
   getById,
   createEventTx,
   updateEventTx,
@@ -6,30 +7,37 @@ import {   listEvents,
   upsertUserInvite,
   upsertBandInvite,
   getMyEventsList,
-  getEventsByName, EventHit ,
+  getEventsByName, EventHit,
   updateLocation,
   getAttendingEventIdsByUser,
-type UpdateEventDTO,} from "../repositories/events.repository.js";
+  type UpdateEventDTO,
+} from "../repositories/events.repository.js";
 import { AddressService } from "./address.service.js";
 import { pool } from "../config/database.js";
 import { notifyUser } from "../services/notification.service.js";
 import { getAdminUserId } from "../repositories/band.repository.js";
 
 export type eventDataCreate = {
-    name: string;
-    description?: string | null;
-    visibility?: "public" | "private";
-    capacityMax?: number | null;
+  name: string;
+  description?: string | null;
+  visibility?: "public" | "private";
+  capacityMax?: number | null;
 
-    address: {
-        idCity: number;
-        street: string;
-        streetNum: number;
-        addressDesc?: string | null;
-    }
-    startsAtIso: string;
-    endsAtIso?: string | null;
-    idUser?: number | null;
+  address: {
+    idCity: number;
+    street: string;
+    streetNum: number;
+    addressDesc?: string | null;
+
+    lat: number | null;
+    lon: number | null;
+    provinceName?: string | null;
+    municipioName?: string | null;
+    georef?: { provinceId?: string | null; municipioId?: string | null };
+  }
+  startsAtIso: string;
+  endsAtIso?: string | null;
+  idUser?: number | null;
 }
 type InviteBand = { kind: "band"; idBand: number; idUserAdmin?: number | null; label?: string };
 type InviteMusician = { kind: "musician"; idMusician: number; idUser: number; label?: string };
@@ -56,9 +64,11 @@ export async function newEvent(idUser: number, eventData: eventDataCreate) {
       description: eventData.description ?? null,
       visibility: eventData.visibility ?? "public",
       capacityMax: eventData.capacityMax ?? null,
-      idAddress, 
+      idAddress,
       startsAtIso: eventData.startsAtIso,
       endsAtIso: eventData.endsAtIso ?? null,
+      latitude: Number.isFinite(Number(eventData.address.lat)) ? Number(eventData.address.lat) : null,
+      longitude: Number.isFinite(Number(eventData.address.lon)) ? Number(eventData.address.lon) : null,
     });
 
     await client.query("COMMIT");
@@ -77,6 +87,11 @@ export function listEventsSvc(limit = 20, offset = 0) {
 }
 export function getEventSvc(idEvent: number) {
   return getById(idEvent);
+}
+
+async function notifyEventParticipants(idEvent: number, payload: any) {
+  const { rows } = await pool.query(`select "idUser" from "Directory"."EventAttendee" where "idEvent"=$1`, [idEvent]);
+  await Promise.all(rows.map(r => notifyUser(r.idUser, payload).catch(console.error)));
 }
 
 export async function updateEventSvc(idEvent: number, idUser: number, dto: any) {
@@ -107,6 +122,14 @@ export async function updateEventSvc(idEvent: number, idUser: number, dto: any) 
     }
     await updateEventTx(client, idEvent, idUser, dto as UpdateEventDTO);
 
+    await notifyEventParticipants(idEvent, {
+      type: "event.updated",
+      title: "Evento actualizado",
+      body: "Se actualizaron detalles del evento",
+      data: { idEvent },
+      channel: "push",
+    });
+
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
@@ -116,8 +139,16 @@ export async function updateEventSvc(idEvent: number, idUser: number, dto: any) 
   }
 }
 
-export function deleteEventSvc(idEvent: number, idUser: number) {
-  return deleteEvent(idEvent, idUser);
+export async function deleteEventSvc(idEvent: number, idUser: number) {
+  await deleteEvent(idEvent, idUser);
+  await notifyEventParticipants(idEvent, {
+    type: "event.canceled",
+    title: "Evento cancelado",
+    body: "El evento ha sido cancelado",
+    data: { idEvent },
+    channel: "push",
+  });
+
 }
 
 export async function createEventInvites(idEvent: number, targets: InviteTarget[]) {
@@ -132,8 +163,10 @@ export async function createEventInvites(idEvent: number, targets: InviteTarget[
         created++;
         await notifyUser(t.idUser, {
           type: "event_invite_user",
-          idEvent,
-          message: `Te invitaron a un evento`,
+          title: "🎟️ Invitación a un evento",
+          body: "Te invitaron a un evento",
+          data: { idEvent },
+          channel: "push",
         });
         notified.push(t.idUser);
       } else {
@@ -147,9 +180,10 @@ export async function createEventInvites(idEvent: number, targets: InviteTarget[
         if (adminUserId) {
           await notifyUser(adminUserId, {
             type: "event_invite_band_admin",
-            idEvent,
-            idBand: t.idBand,
-            message: `Invitaron a tu banda al evento`,
+            title: "🎸 Invitaron a tu banda",
+            body: "Invitaron a tu banda al evento",
+            data: { idEvent, idBand: t.idBand }, // <- datos en data
+            channel: "push",
           });
           notified.push(adminUserId);
         }

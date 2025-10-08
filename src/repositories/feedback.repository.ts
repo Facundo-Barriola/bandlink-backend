@@ -112,12 +112,12 @@ export async function getRatingSummaryRepo(
 ): Promise<RatingSummary | null> {
   // Usa la vista si existe; si no, calcula inline
   const SQL = `
-    SELECT
-      $1::int AS "idUser",
-      ROUND(AVG(r.rating)::numeric, 2) AS "avgRating",
-      COUNT(*)::int AS "ratingsCount"
-    FROM "Feedback"."Review" r
-    WHERE r."targetIdUser" = $1;
+SELECT
+  $1::int AS "idUser",
+  ROUND(AVG(r.rating)::numeric, 2)::float8 AS "avgRating", 
+  COUNT(*)::int AS "ratingsCount"
+FROM "Feedback"."Review" r
+WHERE r."targetIdUser" = $1;
   `;
   const { rows } = await pool.query<RatingSummary>(SQL, [idUser]);
   const row = rows[0];
