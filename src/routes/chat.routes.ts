@@ -5,7 +5,8 @@ import {
   getInboxController,
   getConversationMessagesController,
   postMessageController,
-  markConversationReadController
+  markConversationReadController,
+  deleteConversationController
 } from "../controllers/chat.controller.js";
 
 const router = Router();
@@ -20,5 +21,7 @@ router.get("/conversations/:id/messages", requireAuth, getConversationMessagesCo
 // Envío y lectura (útil para testear sin WS)
 router.post("/conversations/:id/messages", requireAuth, postMessageController);
 router.post("/conversations/:id/read", requireAuth, markConversationReadController);
+
+router.delete("/conversations/:id", requireAuth, deleteConversationController);
 
 export default router;

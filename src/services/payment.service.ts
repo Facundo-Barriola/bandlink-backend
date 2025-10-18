@@ -1,12 +1,15 @@
-import { mercadopago, mpClient } from "../config/mercadopago.js";
+import { mpClient, mercadopago } from "../config/mercadopago.js";
+import { MercadoPagoConfig } from "mercadopago";
 import { Preference, Payment, MerchantOrder } from "mercadopago";
+import { getMpAccountByStudioId, getMpAccountById } from "../repositories/mpaccount.repository.js";
 import {
   getBookingForPayment, upsertActivePayment, markPaymentStatus,
   addPaymentEvent, setBookingPaid, findPaymentByProviderPref, findActivePaymentByBookingId,
   linkProviderPaymentIdByPref,
-  markPaymentStatusById
+  markPaymentStatusById, applyRefundById, getPaymentById
 } from "../repositories/payment.repository.js";
 import { notifyUser, bookingConfirmedHtml } from "./notification.service.js";
+import { mpRefund } from "./payments/providers/mp.provider.js";
 
 function unwrapMP<T extends object>(r: any): T {
   if (r && typeof r === "object") {
@@ -16,10 +19,10 @@ function unwrapMP<T extends object>(r: any): T {
   return r as T;
 }
 
-async function fetchPaymentWithRetry(id: number, tries = 5, delay = 500) {
+async function fetchPaymentWithRetry(mpCfg: MercadoPagoConfig, id: number | string, tries = 5, delay = 500) {
   for (let i = 0; i < tries; i++) {
     try {
-      const resp = await new Payment(mpClient).get({ id });
+      const resp = await new Payment(mpCfg).get({ id });
       return (resp as any).body ?? resp;
     } catch (e: any) {
       if (e?.status !== 404 || i === tries - 1) throw e;
@@ -30,6 +33,10 @@ async function fetchPaymentWithRetry(id: number, tries = 5, delay = 500) {
   throw new Error("Unreachable");
 }
 
+async function getMerchantOrder(mpCfg: MercadoPagoConfig, merchantOrderId: string) {
+  const mo = await new MerchantOrder(mpCfg).get({ merchantOrderId });
+  return unwrapMP<any>(mo);
+}
 
 function round2(n: number) { return Math.round(n * 100) / 100; }
 
@@ -43,10 +50,20 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
   const hours = (new Date(b.endsAt).getTime() - new Date(b.startsAt).getTime()) / 3600000;
   const price = Number(b.totalAmount ?? (Number(b.pricePerHour ?? 0) * hours));
   const amount = round2(price);
+
+  const mpAcc = await getMpAccountByStudioId(b.idStudio);
+  if (!mpAcc) return { ok: false, error: "La sala no tiene Mercado Pago conectado" };
+
+  const mpCfg = new MercadoPagoConfig({ accessToken: mpAcc.access_token });
+
   console.log("Amount a cobrar:", amount);
   // Crear preference en MP
   //const email = "TESTUSER5463626794354640670";
   console.log(process.env.MP_PUBLIC_URL)
+  const notification_url_base = process.env.MP_PUBLIC_URL ?? "http://localhost:4000";
+  const notification_url =
+    `${notification_url_base}/payments/webhook?acc=${mpAcc.idMpAccount}&booking=${idBooking}`;
+  const platformFeePct = Number(process.env.PLATFORM_FEE_PCT ?? "0");
   const preference = {
     items: [{
       title: `Reserva sala #${idBooking}`,
@@ -64,12 +81,16 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
     binary_mode: true,
     payer: payerEmail ? { email: payerEmail } : undefined,
     external_reference: `booking:${idBooking}`,
+    //metadata: { bookingId: idBooking, env: 'dev' },
+    //notification_url: (process.env.MP_PUBLIC_URL ?? "http://localhost:4000") + "/payments/webhook",
     metadata: { bookingId: idBooking, env: 'dev' },
-    notification_url: (process.env.MP_PUBLIC_URL ?? "http://localhost:4000") + "/payments/webhook"
+    notification_url,
+    ...(platformFeePct > 0 ? { marketplace_fee: round2(amount * platformFeePct / 100) } : {})
   };
 
   try {
-    const prefRes = await new Preference(mpClient).create({ body: preference as any });
+    //const prefRes = await new Preference(mpClient).create({ body: preference as any });
+    const prefRes = await new Preference(mpCfg).create({ body: preference as any });
     const pref = unwrapMP<any>(prefRes);
 
     // Extrae con tolerancia de llaves (distintos nombres en minores)
@@ -92,6 +113,8 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
       providerPrefId: prefId,          // <- ahora es string
       payerIdUser: idUser ?? null,     // opcional: si querés permitir null
       payerEmail: payerEmail ?? null,
+      idMpAccount: mpAcc.idMpAccount,
+      collectorId: collectorId ?? null,
     });
     console.log("", prefId, payment.idPayment, initPoint)
 
@@ -111,14 +134,37 @@ export async function createPaymentForBooking(idBooking: number, idUser: number,
 
 }
 
-export async function handleWebhook(payload: any, headers: Record<string, string>) {
+export async function handleWebhook(payload: any, headers: Record<string, string>, query?: Record<string, any>) {
   const topic = payload?.type || payload?.topic;
   const paymentId = payload?.data?.id || payload?.resource?.split("/").pop();
 
   if (!paymentId) return { ok: false, info: "Sin payment id" };
+  let idMpAccount: number|null = query?.acc ? Number(query.acc) : null;
+  if (idMpAccount == undefined || idMpAccount == null || !idMpAccount){
+    return {ok: false, info: "No existe idMpAccount"}
+  }
+  let mpAcc = idMpAccount ? await getMpAccountById(idMpAccount) : null;
 
-  // 1) Leer el pago con retry (evita 404 por latencia)
-  const p = await fetchPaymentWithRetry(Number(paymentId));
+  // fallback: por booking hint
+  if (!mpAcc && query?.booking) {
+    const bkId = Number(query.booking);
+    if (Number.isFinite(bkId)) {
+      const p0 = await findActivePaymentByBookingId(bkId);
+      if (p0?.idMpAccount) {
+        idMpAccount = p0.idMpAccount;
+        mpAcc = await getMpAccountById(idMpAccount);
+      }
+    }
+  }
+  if (!mpAcc) {
+    console.warn("[MP][webhook] No se pudo resolver MpAccount (falta acc/booking). Abort.");
+    return { ok: false, info: "mpAccount not resolved" };
+  }
+  const mpCfg = new MercadoPagoConfig({ accessToken: mpAcc.access_token });
+
+  // 1) Leer el pago con retry usando el token de la sala (evita 404 por latencia)
+  const p = await fetchPaymentWithRetry(mpCfg, String(paymentId));
+
 
   console.log("[MP][webhook] topic:", topic, "paymentId:", paymentId);
   console.log("[MP][webhook] status:", p.status, "status_detail:", p.status_detail);
@@ -133,7 +179,7 @@ export async function handleWebhook(payload: any, headers: Record<string, string
   // 2.a) Conseguir preference_id real vía Merchant Order (order.id = merchant_order_id)
   let prefId: string | null = p?.metadata?.preference_id ?? null; // suele venir vacío
   if (!prefId && p?.order?.id) {
-    const mo = unwrapMP<any>(await new MerchantOrder(mpClient).get({ merchantOrderId: String(p.order.id) }));
+    const mo = await getMerchantOrder(mpCfg, String(p.order.id));
     prefId = mo?.preference_id ?? null;
     if (!externalRef) externalRef = mo?.external_reference ?? null;
   }
@@ -149,45 +195,94 @@ export async function handleWebhook(payload: any, headers: Record<string, string
     paymentRow = await findPaymentByProviderPref(prefId);
   }
   if (p.status === "approved") {
-    await setBookingPaid(paymentRow.idBooking);
-
-    const b = await getBookingForPayment(paymentRow.idBooking);
-    if (b?.idUser) {
-      // Push rápido
-      await notifyUser(b.idUser, {
-        type: "booking_confirmed",
-        title: "✅ Reserva confirmada",
-        body: "Tu pago fue aprobado y la reserva quedó confirmada.",
-        data: { idBooking: paymentRow.idBooking },
-        channel: "push",
-      }).catch(console.error);
+    if (paymentRow) {
+      await setBookingPaid(paymentRow.idBooking);
     }
-  }
-  if (!paymentRow && bookingIdFromMeta) {
-    paymentRow = await findActivePaymentByBookingId(Number(bookingIdFromMeta));
-  }
-  if (!paymentRow && externalRef?.startsWith("booking:")) {
-    const bId = Number(externalRef.split(":")[1]);
-    if (Number.isFinite(bId)) {
-      paymentRow = await findActivePaymentByBookingId(bId);
+
+    if (paymentRow) {
+      const b = await getBookingForPayment(paymentRow.idBooking);
+      if (b?.idUser) {
+        // Push rápido
+        await notifyUser(b.idUser, {
+          type: "booking_confirmed",
+          title: "✅ Reserva confirmada",
+          body: "Tu pago fue aprobado y la reserva quedó confirmada.",
+          data: { idBooking: paymentRow.idBooking },
+          channel: "push",
+        }).catch(console.error);
+      }
     }
+    if (!paymentRow && bookingIdFromMeta) {
+      paymentRow = await findActivePaymentByBookingId(Number(bookingIdFromMeta));
+    }
+    if (!paymentRow && externalRef?.startsWith("booking:")) {
+      const bId = Number(externalRef.split(":")[1]);
+      if (Number.isFinite(bId)) {
+        paymentRow = await findActivePaymentByBookingId(bId);
+      }
+    }
+
+    if (!paymentRow) {
+      await addPaymentEvent(null as any, "mercadopago", "unmatched", { paymentId, prefId, externalRef, meta: p?.metadata });
+      return { ok: false, info: "Payment interno no encontrado" };
+    }
+
+    // 4) Registrar evento y actualizar estado por ID INTERNO (idempotente)
+    const paidAt = p?.date_approved ? new Date(p.date_approved) : null;
+
+    await addPaymentEvent(paymentRow.idPayment, "mercadopago", topic ?? "payment", p);
+    await markPaymentStatusById(paymentRow.idPayment, p.status, paidAt);
+
+    if (p.status === "approved") {
+      await setBookingPaid(paymentRow.idBooking);
+    }
+
+    return { ok: true };
   }
+}
 
-  if (!paymentRow) {
-    await addPaymentEvent(null as any, "mercadopago", "unmatched", { paymentId, prefId, externalRef, meta: p?.metadata });
-    return { ok: false, info: "Payment interno no encontrado" };
+export async function refundPayment(idPayment: number, amount?: number) {
+  // 1) Buscar el pago interno
+  const p = await getPaymentById(idPayment);
+  if (!p) return { ok: false, error: "Pago inexistente" };
+  if (p.provider !== "mercadopago") return { ok: false, error: "Proveedor no soportado para refund" };
+  if (!p.providerPaymentId) {
+    return { ok: false, error: "Aún no vinculado a paymentId de MP (esperá el webhook)" };
   }
+  if (!p.idMpAccount) return { ok: false, error: "Pago sin cuenta de MP asociada" };
 
-  // 4) Registrar evento y actualizar estado por ID INTERNO (idempotente)
-  const paidAt = p?.date_approved ? new Date(p.date_approved) : null;
+  // 2) Resolver cuenta vendedora (sala)
+  const acc = await getMpAccountById(p.idMpAccount);
+  if (!acc) return { ok: false, error: "Cuenta de MP de la sala no encontrada" };
 
-  await addPaymentEvent(paymentRow.idPayment, "mercadopago", topic ?? "payment", p);
-  await markPaymentStatusById(paymentRow.idPayment, p.status, paidAt);
+  // 3) Calcular si es total o parcial según lo enviado vs lo ya reembolsado
+  const total = Number(p.amount ?? 0);
+  const already = Number(p.refundedAmount ?? 0);
+  const req = amount == null ? (total - already) : Number(amount);
+  if (req <= 0) return { ok: false, error: "Nada por reembolsar" };
 
-  if (p.status === "approved") {
-    await setBookingPaid(paymentRow.idBooking);
-  }
+  // 4) Ejecutar refund en MP
+  const resp = await mpRefund(String(p.providerPaymentId), acc.access_token, amount);
 
-  return { ok: true };
+  // 5) Actualizar BD
+  const finalAfter = already + req;
+  const isFinal = finalAfter >= (total - 0.01); // tolerancia centavos
+  const newStatus = isFinal ? "refunded" : "partially_refunded";
+
+  await applyRefundById(p.idPayment, req, newStatus);
+  await addPaymentEvent(p.idPayment, "mercadopago", "refund", resp);
+
+  // 6) Opcional: si preferís consolidar estado usando markPaymentStatusById
+  // await markPaymentStatusById(p.idPayment, newStatus, p.paidAt ?? null);
+
+  return {
+    ok: true,
+    data: {
+      providerPaymentId: p.providerPaymentId,
+      requestedAmount: req,
+      newStatus,
+      mpResponse: resp
+    }
+  };
 }
 

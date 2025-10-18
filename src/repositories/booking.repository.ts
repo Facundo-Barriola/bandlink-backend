@@ -1,6 +1,13 @@
 import { pool } from "../config/database.js";
 import { PoolClient } from "pg";
 
+export type CreateRoomBookingResult = {
+  ok: boolean;
+  info: "overlap" | "invalid_range" | "outside_opening_hours" | string | null;
+  idBooking: number | null;
+  confirmationCode: string | null;
+};
+
 export async function createRoomBooking(
   idUser: number,
   idRoom: number,
@@ -14,6 +21,33 @@ export async function createRoomBooking(
 
   const { rows } = await pool.query(sql, params);
   const r = rows[0] ?? {};
+  return {
+    ok: !!r.ok,
+    info: r.info ?? null,
+    idBooking: r.idbooking ?? r.idBooking ?? null,
+    confirmationCode: r.confirmationcode ?? r.confirmationCode ?? null,
+  };
+}
+
+export async function createRoomBookingWithClient(
+  client: PoolClient,
+  idUser: number,
+  idRoom: number,
+  startsAtIso: string, // ISO con Z
+  endsAtIso: string,   // ISO con Z
+  notes: string | null = null,
+  contactNumber: string | null = null
+): Promise<CreateRoomBookingResult> {
+  const sql = `
+    select * from "Directory".fn_create_room_booking(
+      $1, $2, $3::timestamptz, $4::timestamptz, $5, $6
+    )
+  `;
+  const params = [idUser, idRoom, startsAtIso, endsAtIso, notes, contactNumber];
+
+  const { rows } = await client.query(sql, params);
+  const r = rows?.[0] ?? {};
+
   return {
     ok: !!r.ok,
     info: r.info ?? null,

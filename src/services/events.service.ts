@@ -31,9 +31,9 @@ export type eventDataCreate = {
 
     lat: number | null;
     lon: number | null;
-    provinceName?: string | null;
     municipioName?: string | null;
-    georef?: { provinceId?: string | null; municipioId?: string | null };
+    provinceName?: string | null;
+    barrioName?: string | null;
   }
   startsAtIso: string;
   endsAtIso?: string | null;
@@ -47,16 +47,18 @@ export async function newEvent(idUser: number, eventData: eventDataCreate) {
   try {
     await client.query("BEGIN");
 
-    const { idCity, street, streetNum, addressDesc } = eventData.address ?? {};
-    if (!idCity || !street?.trim() || !Number.isFinite(Number(streetNum))) {
+    const { street, streetNum, addressDesc } = eventData.address ?? {};
+    if (!street?.trim() || !Number.isFinite(Number(streetNum))) {
       throw new Error("Faltan datos para crear la dirección");
     }
 
     const idAddress = await AddressService.createAddress(client, {
-      idCity,
       street: street.trim(),
       streetNum: Number(streetNum),
       addressDesc: addressDesc ?? null,
+      provinceName: eventData.address.provinceName ?? null,
+      municipioName: eventData.address.municipioName ?? null,
+      barrioName: eventData.address.barrioName ?? null,
     });
 
     const idEvent = await createEventTx(client, idUser, {
@@ -108,15 +110,27 @@ export async function updateEventSvc(idEvent: number, idUser: number, dto: any) 
     await client.query("BEGIN");
 
     if (dto?.address) {
-      const { idCity, street, streetNum, addressDesc } = dto.address;
-      if (!idCity || !street?.trim() || !Number.isFinite(Number(streetNum))) {
+      const a = dto.address;
+
+      // normalizar texto (aceptar ambos esquemas)
+      const provinceName = a.province ?? a.provinceName ?? null;
+      const cityName = a.city ?? a.cityName ?? null;
+      const neighborhood = a.neighborhood ?? a.neighborhoodName ?? null;
+
+      const lat = (a.lat === null || a.lat === undefined) ? null : Number(a.lat);
+      const lon = (a.lon === null || a.lon === undefined) ? null : Number(a.lon);
+      if (a.lat !== undefined) dto.latitude = Number.isFinite(lat!) ? lat : null;
+      if (a.lon !== undefined) dto.longitude = Number.isFinite(lon!) ? lon : null;
+      if (!a.street?.trim() || !Number.isFinite(Number(a.streetNum))) {
         throw new Error("Faltan datos para crear la dirección");
       }
       const idAddress = await AddressService.createAddress(client, {
-        idCity,
-        street: street.trim(),
-        streetNum: Number(streetNum),
-        addressDesc: addressDesc ?? null,
+        street: a.street.trim(),
+        streetNum: Number(a.streetNum),
+        addressDesc: a.addressDesc ?? null,
+        provinceName,
+        municipioName: cityName,
+        barrioName: neighborhood,
       });
       dto.idAddress = idAddress;
     }

@@ -23,10 +23,12 @@ export type RegisterFullInput = {
         latitude?: number | null;
         longitude?: number | null;
         address?: {
-            idCity: number;
             street: string;
             streetNum: number;
             addressDesc?: string | null;
+            provinceName?: string | null;
+            municipioName?: string | null;
+            barrioName?: string | null;
         };
     };
     musician?: CreateMusicianParams | null;
@@ -76,16 +78,18 @@ export class AccountService {
                 const addrBlock = input.profile.address ?? s.address ?? null;
 
                 if (!idAddress && addrBlock) {
-                    const { idCity, street, streetNum, addressDesc } = addrBlock;
-                    if (!idCity || !street?.trim() || !Number.isFinite(Number(streetNum))) {
+                    const { street, streetNum, addressDesc, provinceName, municipioName, barrioName } = addrBlock;
+                    if (!street?.trim() || !Number.isFinite(Number(streetNum))) {
                         throw new Error("Faltan datos para crear la dirección");
                     }
                     // crea dentro de la MISMA transacción
                     idAddress = await AddressService.createAddress(client, {
-                        idCity,
                         street: street.trim(),
                         streetNum: Number(streetNum),
                         addressDesc: addressDesc ?? null,
+                        provinceName: provinceName ?? null,
+                        municipioName: municipioName ?? null,
+                        barrioName: barrioName ?? null,
                     });
                     // opcional: log
                     console.log("Address creada idAddress=", idAddress);

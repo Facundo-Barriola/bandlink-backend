@@ -29,7 +29,11 @@ export async function getCitiesByProvinceId(provinceId: number | string): Promis
 
 
 export type CreateAddressArgs = {
-  idCity: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  provinceName?: string | null;
+  municipioName?: string | null;
+  barrioName?: string | null;
   street: string;
   streetNum: number;
   addressDesc?: string | null;
@@ -41,12 +45,13 @@ export async function createAddress(
 ): Promise<number> {
   const sql = `
     INSERT INTO "Address"."Address"
-      ("idCity", street, "streetNum", "addressDesc")
-    VALUES ($1, $2, $3, $4)
+      (street, "streetNum", "addressDesc", "province", "neighborhood", "city")
+    VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING "idAddress"
   `;
   const { rows } = await client.query<{ idAddress: number }>(sql, [
-    args.idCity, args.street, args.streetNum, args.addressDesc ?? null
+     args.street, args.streetNum, args.addressDesc ?? null, args.provinceName ?? null,
+     args.barrioName ?? null, args.municipioName ?? null
   ]);
   if (!rows[0]) {
     throw new Error("Failed to create address: no idAddress returned.");

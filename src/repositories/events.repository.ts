@@ -89,7 +89,7 @@ export async function createEventTx(client: PoolClient, idUser: number, payload:
       payload.description ?? null,
       payload.capacityMax ?? null,
       payload.idAddress,           // <- viene del service
-      payload.latitude, 
+      payload.latitude,
       payload.longitude,
       starts.toISOString().replace("Z", ""),
       ends ? ends.toISOString().replace("Z", "") : null,
@@ -98,6 +98,8 @@ export async function createEventTx(client: PoolClient, idUser: number, payload:
 
   return rows[0].idEvent as number;
 }
+
+
 
 export async function updateEventTx(
   client: PoolClient,
@@ -120,7 +122,8 @@ export async function updateEventTx(
   if (payload.idAddress !== undefined) add(`"idAddress" =`, payload.idAddress);
   if (payload.startsAtIso !== undefined) add(`"startsAt" =`, payload.startsAtIso?.replace("Z", ""));
   if (payload.endsAtIso !== undefined) add(`"endsAt" =`, payload.endsAtIso ? payload.endsAtIso.replace("Z", "") : null);
-
+  if (payload.latitude !== undefined) add(`"latitude" =`, payload.latitude ?? null);
+  if (payload.longitude !== undefined) add(`"longitude" =`, payload.longitude ?? null);
   add(`"updatedAt" =`, new Date().toISOString().replace("Z", ""));
 
   if (!setParts.length) return;
@@ -184,7 +187,10 @@ export async function getMyEventsList(idUser: number, limit = 50, offset = 0): P
         COALESCE(json_build_object(
           'idAddress',  a."idAddress",
           'street',     a."street",
-          'streetNum',  a."streetNum"
+          'streetNum',  a."streetNum",
+            'province',   a."province",
+            'city',       a."city",
+            'neighborhood', a."neighborhood"
         ), NULL) AS "address"
       FROM "Directory"."Event" e
       LEFT JOIN "Address"."Address" a   

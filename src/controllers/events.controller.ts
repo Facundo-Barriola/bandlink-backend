@@ -42,7 +42,8 @@ export async function createEventController(req: AuthRequest, res: Response) {
     if (!idUser) return res.status(401).json({ ok: false, error: "unauthorized" });
 
     const { name, startsAtIso, address } = req.body || {};
-    if (!name || !startsAtIso || !address?.idCity || !address?.street || address?.streetNum == null) {
+    console.log("createEventController body:", req.body);
+    if (!name || !startsAtIso || !address?.street || address?.streetNum == null) {
       return res.status(400).json({ ok: false, error: "missing_fields" });
     }
 

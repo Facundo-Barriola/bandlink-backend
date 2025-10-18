@@ -8,9 +8,13 @@ import {
   insertMessage,
   markRead as repoMarkRead,
   upsertReceipt as repoUpsertReceipt,
-  getParticipants
+  getParticipants,
+  removeParticipant as repoRemoveParticipant,
+  countParticipants as repoCountParticipants,
+  deleteConversationCascade as repoDeleteConversationCascade
 } from "../repositories/chat.repository.js";
 import { markReadReceipts } from "../repositories/chat.repository.js";
+import { getUsersByIds } from "../repositories/directory.repository.js";
 import { pool } from "../config/database.js";
 import { notifyUser } from "./notification.service.js";
 
@@ -32,6 +36,21 @@ export type MessageInput = {
   body?: string | null;
   attachments?: any | null;
 };
+
+type UserLite = { idUser: number; displayName: string; avatarUrl: string | null };
+
+async function hydrateOthers(rows: any[]) {
+  const allOtherIds = new Set<number>();
+  for (const r of rows) {
+    for (const id of (r.otherUserIds ?? [])) allOtherIds.add(Number(id));
+  }
+  if (allOtherIds.size === 0) return { rows, byId: new Map<number, UserLite>() };
+
+  const ids = Array.from(allOtherIds);
+  const users = await getUsersByIds(ids); // <-- tu función existente
+  const byId = new Map(users.map(u => [u.idUser, u]));
+  return { rows, byId };
+}
 
 async function isBlockedBetween(a: number, b: number): Promise<boolean> {
   if (!CHAT_RESPECT_BLOCKS) return false;
@@ -99,7 +118,28 @@ export const ChatService = {
 
   /** Lista el inbox (último mensaje + no leídos) del usuario. */
   async listInboxForUser(userId: number, limit = 30, offset = 0) {
-    return listInbox(userId, limit, offset);
+        const rows = await listInbox(userId, limit, offset);
+
+    // Hidratar perfiles de “otros”
+    const { byId } = await hydrateOthers(rows);
+
+    // Mapear resultado enriquecido
+    const enriched = rows.map((r: any) => {
+      const others: UserLite[] = (r.otherUserIds ?? [])
+        .map((id: number) => byId.get(Number(id)))
+        .filter(Boolean);
+
+      // Para DM, exponé además un "otherUser" directo (single)
+      const otherUser = r.type === "dm" ? (others[0] ?? null) : null;
+
+      return {
+        ...r,
+        otherUser,      // { idUser, displayName, avatarUrl } | null  (para DM)
+        otherUsers: others, // array (para grupos si querés mostrar chips)
+      };
+    });
+
+    return enriched;
   },
 
   /** Verifica si un usuario participa de una conversación. */
@@ -176,6 +216,30 @@ export const ChatService = {
         idUser,
         readAt: until.toISOString(),
       });
+    }
+  },
+  async leaveConversation(idConversation: number, idUser: number) {
+    // Garantizar que participa
+    if (!(await repoIsParticipant(idConversation, idUser))) {
+      const err = Object.assign(new Error("not_a_participant"), { httpStatus: 404 });
+      throw err;
+    }
+
+    // 1) Salir: quitar su fila de participantes
+    await repoRemoveParticipant(idConversation, idUser);
+
+    // 2) Si no queda nadie, borrar conversación y todo su contenido
+    const left = await repoCountParticipants(idConversation);
+    if (left === 0) {
+      await repoDeleteConversationCascade(idConversation);
+    } else {
+      // Notificar a sala que este user salió (opcional)
+      if (chatIo) {
+        chatIo.of("/chat").to(roomOf(idConversation)).emit("conversation:left", {
+          idConversation,
+          idUser,
+        });
+      }
     }
   },
 };

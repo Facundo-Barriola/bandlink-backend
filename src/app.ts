@@ -21,6 +21,10 @@ import feedbackRoutes from "./routes/feedback.routes.js";
 import pushRoutes from "./routes/push.routes.js";
 import notificationsRoutes from "./routes/notifications.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
+import mpIntegrationRoutes from "./routes/mercadopago.routes.js";
+import mapRoutes from "./routes/map.routes.js";
+import kpisRoutes from "./routes/kpis.routes.js";
+import faqsRoutes from "./routes/faq.routes.js";
 
 const app = express();
 app.use("/payments/webhook", express.raw({ type: "*/*" }));
@@ -53,6 +57,10 @@ app.use("/events", eventsRouter);
 app.use("/discover", discoverRoutes);
 app.use("/feedback", feedbackRoutes);
 app.use("/chat", chatRoutes);
+app.use("/integrations/mercadopago", mpIntegrationRoutes);
+app.use("/map", mapRoutes);
+app.use("/kpis", kpisRoutes);
+app.use(faqsRoutes);
 app.use(presenceRouter);
 
 

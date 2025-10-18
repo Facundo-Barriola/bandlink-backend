@@ -1,7 +1,7 @@
 import { Router } from "express";
 import express from "express";
 import { requireAuth } from "../middlewares/auth.js";
-import { createPaymentForBookingController, webhookController,createPaymentForBookingUnifiedController } from "../controllers/payment.controller.js";
+import { createPaymentForBookingController, webhookController,createPaymentForBookingUnifiedController, refundController  } from "../controllers/payment.controller.js";
 
 const router = Router();
 router.post("/booking/:idBooking", requireAuth, createPaymentForBookingController);
@@ -11,7 +11,9 @@ router.get("/webhook", (req, res) => {
   res.sendStatus(200);
 });
 
-router.post("/webhook", webhookController); 
+router.post("/webhook", webhookController);
+
+router.post("/:idPayment/refund", requireAuth, refundController);
 
 router.post("/:provider/booking/:idBooking",   (req, _res, next) => {
     console.log("[ROUTE] provider:", req.params.provider, "id:", req.params.idBooking);

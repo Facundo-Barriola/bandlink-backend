@@ -245,3 +245,19 @@ export async function unfollowBandController(req: Request, res: Response) {
     return res.status(500).json({ ok: false, error: err?.message ?? "Error del servidor" });
   }
 }
+
+export async function kickBandMemberController(req: Request, res: Response) {
+  try {
+    const idBand = Number(req.params.id);
+    const idMusician = Number(req.params.idMusician);
+    const actingUserId = Number((req as any)?.user?.idUser);
+
+    if (!actingUserId) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const out = await BandService.kickMember({ actingUserId, idBand, idMusician });
+    return res.json({ ok: true, data: out });
+  } catch (e: any) {
+    const status = e?.status ?? 500;
+    return res.status(status).json({ ok: false, error: e?.message ?? "server_error" });
+  }
+}

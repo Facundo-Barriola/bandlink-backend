@@ -5,9 +5,12 @@ import { PoolClient } from "pg";
 export async function getBookingForPayment(idBooking: number) {
   const sql = `
     SELECT b."idBooking", b."idUser", b."startsAt", b."endsAt",
-           b."pricePerHour", b."totalAmount", b.status
-    FROM "Directory"."RoomBooking" b
-    WHERE b."idBooking" = $1
+           b."pricePerHour", b."totalAmount", b.status,
+           s."idStudio"
+      FROM "Directory"."RoomBooking" b
+      JOIN "Directory"."StudioRoom" r ON r."idRoom" = b."idRoom"
+      JOIN "Directory"."Studio"     s ON s."idStudio" = r."idStudio"
+     WHERE b."idBooking" = $1
   `;
   const { rows } = await pool.query(sql, [idBooking]);
   return rows[0] ?? null;
@@ -25,8 +28,10 @@ export async function upsertActivePayment(params: {
   providerPrefId: string; // preference_id de MP
   payerIdUser?: number | null;
   payerEmail?: string | null;
+  idMpAccount: number;
+  collectorId?: number | null;
 }) {
-  const { idBooking, amount, currency, provider, providerPrefId, payerIdUser, payerEmail } = params;
+  const { idBooking, amount, currency, provider, providerPrefId, payerIdUser, payerEmail, idMpAccount, collectorId } = params;
 
   // Cancelá un intento activo anterior (si lo hubiera)
   const sel = `
@@ -48,12 +53,16 @@ export async function upsertActivePayment(params: {
   // Insert nuevo intento
   const ins = `
     INSERT INTO "Billing"."Payment"
-      ("idBooking", amount, currency, provider, "providerPrefId", status, "payerIdUser", "payerEmail")
-    VALUES ($1,$2,$3,$4,$5,'created',$6,$7)
+    ("idBooking", amount, currency, provider, "providerPrefId",
+    status, "payerIdUser", "payerEmail", "idMpAccount", "collectorId")
+    VALUES ($1,$2,$3,$4,$5,'created',$6,$7,$8,$9)
     RETURNING *
   `;
   const r2 = await pool.query(ins, [
-    idBooking, amount, currency, provider, providerPrefId, payerIdUser ?? null, payerEmail ?? null
+    idBooking, amount, currency, provider, providerPrefId,
+    payerIdUser ?? null, payerEmail ?? null,
+    idMpAccount,
+    collectorId ?? null
   ]);
   return r2.rows[0];
 }
@@ -116,7 +125,7 @@ export async function addPaymentEvent(idPayment: number, provider: string, event
     ON CONFLICT DO NOTHING; -- por si llega evento antes que la fila (no debería, pero por las dudas)
   `;
   // Intenta crear esqueleto si no existe; ignorable si ya existe
-  try { await pool.query(ins, [idPayment]); } catch {}
+  try { await pool.query(ins, [idPayment]); } catch { }
 
   const ev = `
     INSERT INTO "Billing"."PaymentEvent"("idPayment", provider, "eventType", payload)
@@ -177,6 +186,28 @@ export async function getPaidStatusForBooking(client: PoolClient, idBooking: num
   );
   const p = rows[0];
   if (!p) return { hasPayment: false, isPaid: false };
-  const isPaid = ['approved','paid','completed','accredited'].includes((p.status || '').toLowerCase());
+  const isPaid = ['approved', 'paid', 'completed', 'accredited'].includes((p.status || '').toLowerCase());
   return { hasPayment: true, isPaid };
+}
+
+export async function applyRefundById(
+  idPayment: number,
+  refundAmount?: number | null,
+  forceStatus?: "refunded" | "partially_refunded"
+) {
+  const upd = `
+    UPDATE "Billing"."Payment"
+       SET "refundedAmount" = COALESCE("refundedAmount", 0) + COALESCE($2, 0),
+           status = COALESCE($3, status),
+           "updatedAt" = now()
+     WHERE "idPayment" = $1
+     RETURNING *
+  `;
+  const { rows } = await pool.query(upd, [idPayment, refundAmount ?? null, forceStatus ?? null]);
+  return rows[0] ?? null;
+}
+
+export async function getPaymentById(idPayment: number) {
+  const { rows } = await pool.query(`SELECT * FROM "Billing"."Payment" WHERE "idPayment"=$1`, [idPayment]);
+  return rows[0] ?? null;
 }

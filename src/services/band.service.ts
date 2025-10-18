@@ -19,6 +19,7 @@ import {
   getBandName,
   getBandAdminUserIds,
   unfollowByUser,
+  deleteBandMemberRow,
 } from "../repositories/band.repository.js";
 export type PublishSearchDTO = {
   title: string;
@@ -46,6 +47,45 @@ export class BandService {
 
   static async getBand(idBand: number): Promise<GetBandResult> {
     return BandRepository.getBand(idBand);
+  }
+
+    static async kickMember(opts: { actingUserId: number; idBand: number; idMusician: number }) {
+    const { actingUserId, idBand, idMusician } = opts;
+
+    if (!Number.isFinite(idBand) || idBand <= 0) {
+      const e = new Error("idBand inválido"); (e as any).status = 400; throw e;
+    }
+    if (!Number.isFinite(idMusician) || idMusician <= 0) {
+      const e = new Error("idMusician inválido"); (e as any).status = 400; throw e;
+    }
+
+    const actingMusicianId = await getMusicianIdByUserId(actingUserId);
+    if (!actingMusicianId) {
+      const e = new Error("forbidden"); (e as any).status = 403; throw e;
+    }
+
+    const isActingAdmin = await isBandAdmin(idBand, actingMusicianId);
+    if (!isActingAdmin) {
+      const e = new Error("forbidden"); (e as any).status = 403; throw e;
+    }
+
+    const targetIsMember = await isBandMember(idBand, idMusician);
+    if (!targetIsMember) {
+      const e = new Error("member_not_found"); (e as any).status = 404; throw e;
+    }
+
+    // No permitir echar a otro admin (y opcionalmente te evitás echarte a vos mismo)
+    const targetIsAdmin = await isBandAdmin(idBand, idMusician);
+    if (targetIsAdmin) {
+      const e = new Error("no_remove_admin"); (e as any).status = 409; throw e;
+    }
+
+    const deleted = await deleteBandMemberRow(idBand, idMusician);
+    if (deleted === 0) {
+      const e = new Error("member_not_found"); (e as any).status = 404; throw e;
+    }
+
+    return { ok: true, deleted };
   }
 
 }

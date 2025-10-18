@@ -57,7 +57,30 @@ export type BandSearchInsert = {
   longitude?: number | null;
 };
 
+export type BandMemberProfileRow = {
+  idMusician: number;
+  displayName: string | null;
+  avatarUrl: string | null;
+};
+
 export type BandHit = { idBand: number; idUserProfile: number | null; name: string };
+
+async function getMemberProfilesForBand(idBand: number): Promise<BandMemberProfileRow[]> {
+  const sql = `
+    SELECT
+      bm."idMusician"                    AS "idMusician",
+      up."displayName"                   AS "displayName",
+      up."avatarUrl"                     AS "avatarUrl"
+    FROM "Directory"."BandMember" bm
+    JOIN "Directory"."Musician"    m  ON m."idMusician" = bm."idMusician"
+    JOIN "Directory"."UserProfile" up ON up."idUserProfile" = m."idUserProfile"
+    WHERE bm."idBand" = $1
+      AND bm."leftAt" IS NULL
+  `;
+  const { rows } = await pool.query(sql, [idBand]);
+  return rows as BandMemberProfileRow[];
+}
+
 
 export async function getMusicianIdByUserId(idUser: number): Promise<number | null> {
   const q = `
@@ -230,25 +253,48 @@ export class BandRepository {
     }
   }
 
-  static async getBand(idBand: number): Promise<GetBandResult> {
-    const sql = `
-      SELECT "Directory".fn_get_band($1::int) AS band
-    `;
-    try {
-      const { rows } = await pool.query(sql, [idBand]);
-      if (!rows.length || !rows[0].band) {
-        const e = new Error("Banda no encontrada");
-        (e as any).httpStatus = 404;
-        throw e;
-      }
-      return rows[0].band as GetBandResult;
-    } catch (err: any) {
-      if (err.code === "02000") {
-        err.httpStatus = 404;
-      }
-      throw err;
+static async getBand(idBand: number): Promise<GetBandResult> {
+  const sql = `
+    SELECT "Directory".fn_get_band($1::int) AS band
+  `;
+  try {
+    const { rows } = await pool.query(sql, [idBand]);
+    if (!rows.length || !rows[0].band) {
+      const e = new Error("Banda no encontrada");
+      (e as any).httpStatus = 404;
+      throw e;
     }
+
+    // JSON que devuelve la función (contiene members, pero sin displayName)
+    const band = rows[0].band as any;
+
+    // Traemos displayName/avatar de UserProfile por cada miembro
+    const profs = await getMemberProfilesForBand(idBand);
+    const mapById = new Map<number, BandMemberProfileRow>(
+      profs.map(p => [Number(p.idMusician), p])
+    );
+
+    if (Array.isArray(band.members)) {
+      band.members = band.members.map((m: any) => {
+        const idMusician = Number(m?.idMusician ?? m?.musicianId ?? m?.id ?? 0);
+        const prof = mapById.get(idMusician);
+        return {
+          ...m,
+          idMusician,
+          displayName: prof?.displayName ?? m?.displayName ?? (idMusician ? `Músico ${idMusician}` : "Miembro"),
+          avatarUrl: prof?.avatarUrl ?? m?.avatarUrl ?? null,
+        };
+      });
+    }
+
+    return band as GetBandResult;
+  } catch (err: any) {
+    if (err.code === "02000") {
+      err.httpStatus = 404;
+    }
+    throw err;
   }
+}
 
   static async getBandSearches(idBand: number) {
     const sql = `SELECT "idSearch", "idBand", title, description, "minSkillLevel" FROM "Directory"."BandMusicianSearch"
@@ -261,6 +307,17 @@ export class BandRepository {
     }
     return rows;
   }
+}
+
+export async function deleteBandMemberRow(idBand: number, idMusician: number): Promise<number> {
+  const sql = `
+    DELETE FROM "Directory"."BandMember"
+    WHERE "idBand" = $1
+      AND "idMusician" = $2
+      AND "leftAt" IS NULL
+  `;
+  const { rowCount } = await pool.query(sql, [idBand, idMusician]);
+  return rowCount ?? 0;
 }
 
 export async function getAdminUserId(idBand: number): Promise<number | null> {

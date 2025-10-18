@@ -1,5 +1,5 @@
 import type { PaymentProvider, CreatePaymentForBookingParams, CreatePaymentResult } from "./types.js";
-import { createPaymentForBooking as mpCreate } from "../../payment.service.js"; // tu implementación actual
+import { createPaymentForBooking as mpCreate } from "../../payment.service.js"; 
 
 export const MercadoPagoProvider: PaymentProvider = {
   async createPaymentForBooking(p: CreatePaymentForBookingParams): Promise<CreatePaymentResult> {

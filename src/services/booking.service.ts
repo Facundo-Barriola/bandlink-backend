@@ -1,4 +1,4 @@
-import {
+import {createRoomBookingWithClient,
   createRoomBooking, getBookingsForMusician, getBookingsForStudio, getBookingForEmail, refundPaymentByBooking, getPaymentByBooking
   , getForUpdateByOwner, hasOverlapInRoom, updateScheduleAndMaybeTotal, getStudioOpeningHoursAndTZByRoom
 } from "../repositories/booking.repository.js";
@@ -8,6 +8,8 @@ import { stripeRefund } from "./payments/providers/stripe.provider.js";
 import { pool } from "../config/database.js";
 import { normalizeOpeningHours, isWithinOpeningHoursZoned } from "../utils/openingHours.js";
 import { formatInTimeZone } from "date-fns-tz";
+import { findOrCreateBookingConversation } from "../repositories/chat.repository.js";
+import { notifyUser, bookingConfirmedHtml } from "./notification.service.js";
 
 export type CreateRoomBookingDTO = {
   idRoom: number;
@@ -35,40 +37,84 @@ export async function createRoomBookingService(idUser: number, dto: CreateRoomBo
   if (!Number.isFinite(idUser)) throw new ServiceError(401, "No autorizado");
   validate(dto);
 
+  // Validación de horario (fuera de la tx)
   const { openingHours, timezone } = await getStudioOpeningHoursAndTZByRoom(dto.idRoom);
   const tz = timezone || process.env.DEFAULT_TZ || "America/Argentina/Buenos_Aires";
 
   if (openingHours) {
     const norm = normalizeOpeningHours(openingHours as any);
-
-    // DEBUG: te muestra cómo lo está evaluando
     console.log("[opening-hours-check]", {
       tz,
       localStart: formatInTimeZone(dto.startsAt, tz, "yyyy-MM-dd HH:mm"),
       localEnd:   formatInTimeZone(dto.endsAt,   tz, "yyyy-MM-dd HH:mm"),
-      normForDay: norm, // si molesta mucho, logueá solo el día en cuestión
+      normForDay: norm,
     });
-
     const ok = isWithinOpeningHoursZoned(dto.startsAt, dto.endsAt, norm, tz);
     if (!ok) throw new ServiceError(400, "outside_opening_hours");
   }
 
-  const r = await createRoomBooking(
-    idUser,
-    dto.idRoom,
-    dto.startsAt,
-    dto.endsAt,
-    dto.notes ?? null,
-    dto.contactNumber ?? null
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  if (!r.ok) {
-    if (r.info === "overlap")        throw new ServiceError(409, "Horario no disponible");
-    if (r.info === "invalid_range")  throw new ServiceError(400, "Rango inválido");
-    if (r.info === "outside_opening_hours") throw new ServiceError(400, "outside_opening_hours");
-    throw new ServiceError(500, "No se pudo crear la reserva");
+    // 🔹 Ahora el repo devuelve campos planos (no data)
+    const r = await createRoomBookingWithClient(
+      client,
+      idUser,
+      dto.idRoom,
+      dto.startsAt,
+      dto.endsAt,
+      dto.notes ?? null,
+      dto.contactNumber ?? null
+    );
+
+    if (!r.ok) {
+      await client.query("ROLLBACK");
+      if (r.info === "overlap")               throw new ServiceError(409, "Horario no disponible");
+      if (r.info === "invalid_range")         throw new ServiceError(400, "Rango inválido");
+      if (r.info === "outside_opening_hours") throw new ServiceError(400, "outside_opening_hours");
+      throw new ServiceError(500, "No se pudo crear la reserva");
+    }
+
+    const idBooking = r.idBooking;
+    if (!idBooking) {
+      await client.query("ROLLBACK");
+      throw new ServiceError(500, "No se obtuvo idBooking");
+    }
+
+    // Chat idempotente ligado a la reserva
+    const { idConversation, studioUserId } = await findOrCreateBookingConversation(client, {
+      idBooking,
+      idRoom: dto.idRoom,      // lo tenemos del DTO
+      bookingUserId: idUser
+    });
+
+    await client.query("COMMIT");
+
+    await notifyUser(studioUserId,{
+          type: "room_booking",
+          title: "✅ Reserva concretada",
+          body: "Se realizón una reserva en una de tus salas.",
+          data: { idRoom: dto.idRoom },
+          channel: "push",
+    })
+
+    // Devolvés el mismo shape que tenías + el idConversation
+    return {
+      ok: true as const,
+      info: r.info ?? null,
+      idBooking,
+      confirmationCode: r.confirmationCode ?? null,
+      idConversation,
+      // opcional para UI:
+      studioUserId
+    };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
   }
-  return r;
 }
 
 export async function listMusicianBookings(idUser: number) {

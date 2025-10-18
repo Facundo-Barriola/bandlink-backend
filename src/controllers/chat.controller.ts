@@ -152,3 +152,28 @@ export async function markConversationReadController(req: AuthRequest, res: Resp
     return res.status(500).json({ ok: false, error: "Error del servidor" });
   }
 }
+
+export async function deleteConversationController(req: AuthRequest, res: Response) {
+  try {
+    if (req.userId == null) {
+      return res.status(401).json({ ok: false, error: "No autenticado" });
+    }
+    const idConversation = Number(req.params.id);
+    if (!Number.isFinite(idConversation) || idConversation <= 0) {
+      return res.status(400).json({ ok: false, error: "idConversation inválido" });
+    }
+
+    // No filtramos existencia explícita: si no es participante, respondemos 404 para no filtrar información
+    const isPart = await ChatService.isParticipant(idConversation, req.userId);
+    if (!isPart) {
+      return res.status(404).json({ ok: false, error: "No encontrada" });
+    }
+
+    await ChatService.leaveConversation(idConversation, req.userId);
+
+    return res.json({ ok: true, data: { idConversation } });
+  } catch (e) {
+    console.error("deleteConversationController()", e);
+    return res.status(500).json({ ok: false, error: "Error del servidor" });
+  }
+}
