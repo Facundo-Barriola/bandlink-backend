@@ -27,7 +27,7 @@ import kpisRoutes from "./routes/kpis.routes.js";
 import faqsRoutes from "./routes/faq.routes.js";
 
 const app = express();
-app.use("/payments/webhook", express.raw({ type: "*/*" }));
+// app.use("/payments/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
