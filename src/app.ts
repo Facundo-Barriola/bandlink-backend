@@ -27,44 +27,40 @@ import kpisRoutes from "./routes/kpis.routes.js";
 import faqsRoutes from "./routes/faq.routes.js";
 
 const app = express();
-// app.use("/payments/webhook", express.raw({ type: "*/*" }));
+app.use("/payments/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
   origin: ENV.CLIENT_ORIGIN,
-  credentials: true,
-  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  exposedHeaders: ["Content-Length", "X-Total-Count"],               
+  credentials: true,         
 }));
-app.options("*", cors());
 app.use((req, _res, next) => {
   console.log(`[IN] ${req.method} ${req.path} ct=${req.headers["content-type"]}`);
   next();
 });
 
-// app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
-// app.use("/auth", authRoutes);
-// app.use("/push",pushRoutes);
-// app.use("/notifications", notificationsRoutes);
-// app.use("/address", addressRoutes);
-// app.use("/directory", directoryRoutes);
-// app.use("/account", accountRoutes);
-// app.use("/network", networkRoutes);
-// app.use("/band-invites", bandInvitesRoutes);
-// app.use("/bands", bandRoutes);
-// app.use("/booking", bookingRoutes);
-// app.use("/payments", paymentsRoutes);
-// app.use("/receipts", bookingReceiptRouter);
-// app.use("/events", eventsRouter);
-// app.use("/discover", discoverRoutes);
-// app.use("/feedback", feedbackRoutes);
-// app.use("/chat", chatRoutes);
-// app.use("/integrations/mercadopago", mpIntegrationRoutes);
-// app.use("/map", mapRoutes);
-// app.use("/kpis", kpisRoutes);
-// app.use(faqsRoutes);
-// app.use(presenceRouter);
+app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
+app.use("/auth", authRoutes);
+app.use("/push",pushRoutes);
+app.use("/notifications", notificationsRoutes);
+app.use("/address", addressRoutes);
+app.use("/directory", directoryRoutes);
+app.use("/account", accountRoutes);
+app.use("/network", networkRoutes);
+app.use("/band-invites", bandInvitesRoutes);
+app.use("/bands", bandRoutes);
+app.use("/booking", bookingRoutes);
+app.use("/payments", paymentsRoutes);
+app.use("/receipts", bookingReceiptRouter);
+app.use("/events", eventsRouter);
+app.use("/discover", discoverRoutes);
+app.use("/feedback", feedbackRoutes);
+app.use("/chat", chatRoutes);
+app.use("/integrations/mercadopago", mpIntegrationRoutes);
+app.use("/map", mapRoutes);
+app.use("/kpis", kpisRoutes);
+app.use(faqsRoutes);
+app.use(presenceRouter);
 
 
 app.use(errorHandler);
