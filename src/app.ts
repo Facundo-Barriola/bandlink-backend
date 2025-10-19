@@ -27,13 +27,27 @@ import kpisRoutes from "./routes/kpis.routes.js";
 import faqsRoutes from "./routes/faq.routes.js";
 
 const app = express();
+
+app.use(cors({
+  origin: (origin, cb) => {
+    const allow = [ENV.CLIENT_ORIGIN, "http://localhost:3000"].filter(Boolean);
+    if (!origin || allow.includes(origin)) return cb(null, true);
+    return cb(new Error("CORS not allowed: " + origin));
+  },
+  credentials: true,
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  exposedHeaders: ["Content-Length", "X-Total-Count"],
+  optionsSuccessStatus: 204,
+}));
+app.options(/.*/, cors());
 app.use("/payments/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({
+/*app.use(cors({
   origin: ENV.CLIENT_ORIGIN,
   credentials: true,         
-}));
+}));*/
 app.use((req, _res, next) => {
   console.log(`[IN] ${req.method} ${req.path} ct=${req.headers["content-type"]}`);
   next();
