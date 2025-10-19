@@ -43,9 +43,9 @@ app.use((req, _res, next) => {
   next();
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
-app.use("/auth", authRoutes);
-app.use("/push",pushRoutes);
+// app.get("/health", (_req, res) => res.json({ ok: true, service: "bandlink-auth-backend" }));
+// app.use("/auth", authRoutes);
+// app.use("/push",pushRoutes);
 // app.use("/notifications", notificationsRoutes);
 // app.use("/address", addressRoutes);
 // app.use("/directory", directoryRoutes);
