@@ -53,7 +53,6 @@ app.use("/account", accountRoutes);
 app.use("/network", networkRoutes);
 app.use("/band-invites", bandInvitesRoutes);
 app.use("/bands", bandRoutes);
-app.use("/integrations/google-calendar", googleCalendarRouter);
 app.use("/booking", bookingRoutes);
 app.use("/payments", paymentsRoutes);
 app.use("/receipts", bookingReceiptRouter);
@@ -64,8 +63,8 @@ app.use("/chat", chatRoutes);
 app.use("/integrations/mercadopago", mpIntegrationRoutes);
 app.use("/map", mapRoutes);
 app.use("/kpis", kpisRoutes);
-app.use(faqsRoutes);
-app.use(presenceRouter);
+// app.use(faqsRoutes);
+// app.use(presenceRouter);
 
 
 app.use(errorHandler);
