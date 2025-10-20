@@ -19,13 +19,15 @@ process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`[BOOT] Listening on :${PORT}`);
-});
 
 async function start() {
   try {
-    await pool.query("select 1"); // ping DB
+    try {
+      await pool.query("select 1");
+      console.log("✅ Conectado a PostgreSQL");
+    } catch (e) {
+      console.warn("⚠️  No se pudo pingear la DB en el arranque:", e);
+    }
 
     const httpServer = createServer(app);
 
@@ -34,7 +36,7 @@ async function start() {
       // IMPORTANTE: habilitar polling y mandar cookies en el handshake
       transports: ["websocket", "polling"],
       cors: {
-        origin: CLIENT_ORIGIN,    
+        origin: CLIENT_ORIGIN,
         credentials: true,
       },
       serveClient: false,
@@ -53,9 +55,9 @@ async function start() {
 
     const shutdown = async (signal: NodeJS.Signals) => {
       console.log(`\n🛑 ${signal} recibido: cerrando...`);
-      try { io.close(); } catch {}
+      try { io.close(); } catch { }
       httpServer.close(() => console.log("HTTP server cerrado"));
-      try { await pool.end(); } catch {}
+      try { await pool.end(); } catch { }
       process.exit(0);
     };
     process.on("SIGINT", () => shutdown("SIGINT"));
