@@ -19,6 +19,10 @@ process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);
 });
 
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`[BOOT] Listening on :${PORT}`);
+});
+
 async function start() {
   try {
     await pool.query("select 1"); // ping DB
