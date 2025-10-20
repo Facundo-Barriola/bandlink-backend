@@ -28,19 +28,35 @@ import faqsRoutes from "./routes/faq.routes.js";
 
 const app = express();
 
+const clean = (v?: string) => (v ?? "").replace(/^['"]|['"]$/g, "");
+
+const ALLOW = new Set(
+  clean(process.env.CLIENT_ORIGIN)
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean)
+);
+
+app.use((req, _res, next) => { console.log("Origin:", req.headers.origin); next(); });
+
 app.use(cors({
-  origin: (origin, cb) => {
-    const allow = [ENV.CLIENT_ORIGIN, "http://localhost:3000"].filter(Boolean);
-    if (!origin || allow.includes(origin)) return cb(null, true);
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);               // SSR/curl/Postman
+    if (ALLOW.has(origin)) return cb(null, true);     // coincide exactamente
     return cb(new Error("CORS not allowed: " + origin));
   },
-  credentials: true,
+  credentials: true, // si vas a usar cookies
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   exposedHeaders: ["Content-Length", "X-Total-Count"],
   optionsSuccessStatus: 204,
 }));
 app.options(/.*/, cors());
+app.use((req, res, next) => {
+  res.setHeader("Vary", "Origin");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 app.use("/payments/webhook", express.raw({ type: "*/*" }));
 app.use(express.json());
 app.use(cookieParser());
