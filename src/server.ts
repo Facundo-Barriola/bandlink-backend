@@ -42,6 +42,7 @@ async function start() {
     bindChatIo(io);
 
     httpServer.listen(PORT, () => {
+      console.log(`[BOOT] NODE_ENV=${process.env.NODE_ENV} PORT=${process.env.PORT}`);
       console.log(`🚀 API escuchando en http://localhost:${PORT}`);
       console.log(`💬 Socket.IO en ${SOCKETIO_PATH} (origins: ${CLIENT_ORIGIN.join(", ")})`);
     });
